@@ -1,0 +1,1503 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Letter Bounce</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden;
+    font-family: "Press Start 2P", monospace; color: #ffe9a8; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block;
+    image-rendering: pixelated; }
+  #scan { position: fixed; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) 2px, rgba(0,0,0,.22) 3px); }
+  #hud { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between;
+    padding: 12px 16px; font-size: 13px; text-shadow: 2px 2px 0 #000; pointer-events: none; }
+  #hud .title { color: #ffd800; }
+  #hud { flex-wrap: wrap; gap: 8px 16px; right: 110px; }
+  /* Zeitbegrenzung: Skelett mit Sanduhr oben rechts, darunter die Restzeit */
+  #timer { position: fixed; top: 6px; right: 12px; width: 90px; display: flex; flex-direction: column;
+    align-items: center; pointer-events: none; text-shadow: 2px 2px 0 #000; }
+  #skeleton { width: 72px; height: 72px; image-rendering: pixelated; }
+  #timeText { font-size: 15px; margin-top: 4px; color: #ffe9a8; }
+  #timeText.low { color: #ff3b30; animation: blink .5s steps(2) infinite; }
+  /* eingesammelte Schlüssel unten rechts */
+  #keys { position: fixed; right: 12px; bottom: 10px; display: flex; flex-direction: column; align-items: flex-end;
+    gap: 4px; pointer-events: none; font-size: 9px; text-shadow: 2px 2px 0 #000; }
+  #keys.hidden { display: none; }
+  #keyList { display: flex; gap: 4px; }
+  #keyList img { width: 40px; height: 40px; image-rendering: pixelated; }
+  #hudScore.flash { animation: flash .12s steps(2) 6; }
+  @keyframes flash { 50% { color: #fff; opacity: 0; } }
+  #msg { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; text-align: center; pointer-events: none; text-shadow: 3px 3px 0 #000;
+    padding: 0 16px; }
+  #msg.hidden { display: none; }
+  #msg .box { background: rgba(0,0,0,.6); border: 4px solid #ffd800; padding: 28px 32px; max-width: 640px; }
+  #msg h1 { font-size: 44px; line-height: 1.3; color: #ffd800; margin: 0 0 24px; }
+  #msg h2 { font-size: 24px; color: #ffd800; margin: 0 0 18px; }
+  #msg p { font-size: 12px; line-height: 2; margin: 6px 0; }
+  .blink { animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="scan"></div>
+<div id="hud">
+  <span class="title">LETTER BOUNCE</span>
+  <span id="hudLevel">LEVEL 1/5</span>
+  <span id="hudScore">PUNKTE 0</span>
+  <span id="hudHigh">HI 0</span>
+  <span id="hudLives">LEBEN 3</span>
+</div>
+<div id="keys" class="hidden"><span>SCHLÜSSEL</span><div id="keyList"></div></div>
+<div id="timer"><canvas id="skeleton" width="24" height="24"></canvas><span id="timeText">3:00</span></div>
+<div id="msg"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="tiles.js"></script>
+<script src="words.js"></script>
+<script src="levels/level1.js"></script>
+<script src="levels/level2.js"></script>
+<script src="levels/level3.js"></script>
+<script src="levels/level4.js"></script>
+<script src="levels/level5.js"></script>
+<script src="levels/level6.js"></script>
+<script src="levels/level7.js"></script>
+<script src="levels/level8.js"></script>
+<script src="levels/level9.js"></script>
+<script src="levels/level10.js"></script>
+<script src="levels/level11.js"></script>
+<script src="levels/level12.js"></script>
+<script src="levels/level13.js"></script>
+<script src="levels/level14.js"></script>
+<script src="levels/level15.js"></script>
+<script src="levels/level16.js"></script>
+<script src="levels/level17.js"></script>
+<script src="levels/level18.js"></script>
+<script src="levels/level19.js"></script>
+<script src="levels/level20.js"></script>
+<script>
+'use strict';
+
+// ---------------------------------------------------------------------------
+// Konstanten
+// ---------------------------------------------------------------------------
+const COLS = 17, ROWS = 12;          // Spielfeld in Zellen (1 Zelle = 1 Welteinheit)
+const R = 0.272;                   // Radius der Scheibe
+const VSPEED = 5.2;                  // vertikale Geschwindigkeit (konstant)
+const HSPEED = 4.6;                  // horizontale Geschwindigkeit (Cursortasten)
+const KNOCK_SPEED = 3, KNOCK_TIME = 0.04;  // seitliches Abprallen (~0.12 Einheiten)
+const START_LIVES = 3;
+const EPS = 1e-4;
+const HALF = 0.49;                   // halbe Kantenlänge der Würfel (wie dargestellt)
+const CX = COLS / 2, CY = 5.5;       // Mittelpunkt des sichtbaren Bereichs
+const WORD_Y = -1.0;                 // Zeile mit dem Wort unter dem Spielfeld
+const BG_Z = -0.5;                   // direkt hinter den Würfeln
+
+// Wortliste (WORDS) liegt in words.js.
+const POINTS = { letter: 100, brittle: 50, diamond: 250 };
+
+// Level-Daten liegen in levels/level1.js … level20.js (dort auch die Zeichenerklärung).
+// Format je Level: { time: Zeitbegrenzung in Sekunden, map: [Zeilen] }; ältere Dateien mit nur dem Zeilen-Array
+// bekommen die Standardzeit.
+const DEFAULT_TIME = 180;
+const LOW_TIME = 30;                 // ab hier blinkt die Zeitanzeige rot
+const LEVELS = (window.SBALL_LEVELS || []).map(l => Array.isArray(l) ? { time: DEFAULT_TIME, map: l } : l);
+
+// Prüft die Level-Dateien, damit Tippfehler beim Editieren sofort auffallen
+function levelErrors() {
+  const errors = [];
+  if (!LEVELS.length) errors.push('Keine Level-Dateien geladen.');
+  for (let i = 0; i < LEVELS.length; i++) {
+    const level = LEVELS[i], name = `level${i + 1}.js`;
+    if (!level || !Array.isArray(level.map)) { errors.push(`${name}: fehlt.`); continue; }
+    if (!(level.time > 0)) errors.push(`${name}: ungültige Zeitbegrenzung (time).`);
+    const map = level.map;
+    if (map.length !== ROWS) errors.push(`${name}: ${map.length} statt ${ROWS} Zeilen.`);
+    map.forEach((row, r) => {
+      if (row.length !== COLS) errors.push(`${name}, Zeile ${r + 1}: ${row.length} statt ${COLS} Zeichen.`);
+      const bad = row.replace(/[#.XSabcdDmn1-9ygurYGUR]/g, '');
+      if (bad) errors.push(`${name}, Zeile ${r + 1}: unbekannte Zeichen "${bad}".`);
+    });
+    const s = map.join('');
+    const starts = s.split('S').length - 1, letters = letterCount(map);
+    if (starts !== 1) errors.push(`${name}: ${starts} Startpositionen (S) statt genau einer.`);
+    if (!WORDS[letters]) errors.push(`${name}: ${letters} Buchstabensteine, aber keine Wörter mit ${letters} Buchstaben.`);
+    // Buchstabensteine müssen lückenlos von 1 an durchnummeriert sein, jede Nummer genau einmal
+    for (let n = 1; n <= letters; n++) {
+      const k = s.split(String(n)).length - 1;
+      if (k !== 1) errors.push(`${name}: Buchstabenstein ${n} kommt ${k}-mal statt genau einmal vor.`);
+    }
+  }
+  return errors;
+}
+
+// ---------------------------------------------------------------------------
+// Hilfsfunktionen
+// ---------------------------------------------------------------------------
+function canvasTexture(c, nearest = true) {
+  const t = new THREE.CanvasTexture(c);
+  t.generateMipmaps = false;
+  t.minFilter = THREE.LinearFilter;
+  t.magFilter = nearest ? THREE.NearestFilter : THREE.LinearFilter;
+  return t;
+}
+
+// ---------------------------------------------------------------------------
+// Texturen der Steine (Retro-Pixelgrafik; Zeichenfunktionen in tiles.js)
+// ---------------------------------------------------------------------------
+function wallTexture(crack = 0) { return canvasTexture(wallCanvas(crack)); }
+function skullTexture() { return canvasTexture(skullCanvas()); }
+
+const letterTexCache = new Map();
+const LETTER_STYLES = {
+  stone: { bg: '#7a4a24', light: '#a8713f', dark: '#3f2410', fg: '#f3e2c8' },  // inaktiv: braun
+  active: { bg: '#3355cc', light: '#7f9cff', dark: '#1a2a6e', fg: '#ffffff' },
+  ghost: { bg: '#1c160c', light: '#3a2f1c', dark: '#0b0804', fg: '#6b5a3a' },
+  gold:  { bg: '#e0a922', light: '#ffe07a', dark: '#7a5208', fg: '#3a2400' },
+  masc:  { bg: '#2a4f9a', light: '#6f93e0', dark: '#11244d', fg: '#ffffff' },  // Artikel "le"
+  fem:   { bg: '#a02a5a', light: '#e06f9a', dark: '#4d1128', fg: '#ffffff' },  // Artikel "la"
+  banner: { bg: '#f1e6c8', light: '#fffaea', dark: '#a8966a', fg: '#8a1c14' },  // Kette am Flugzeug
+};
+
+const textTexCache = new Map();
+function textTexture(text) {
+  if (textTexCache.has(text)) return textTexCache.get(text);
+  const c = makeCanvas(128, 32), g = c.getContext('2d');
+  g.font = '20px "Press Start 2P", monospace';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#000'; g.fillText(text, 66, 18);
+  g.fillStyle = '#ffe14a'; g.fillText(text, 64, 16);
+  const t = canvasTexture(c);
+  textTexCache.set(text, t);
+  return t;
+}
+
+function letterTexture(letter, style) {
+  const key = letter + '|' + style;
+  if (letterTexCache.has(key)) return letterTexCache.get(key);
+  const st = LETTER_STYLES[style], s = 64, c = makeCanvas(s, s), g = c.getContext('2d');
+  g.fillStyle = st.bg; g.fillRect(0, 0, s, s);
+  bevel(g, s, st.light, st.dark, 4);
+  g.font = '32px "Press Start 2P", monospace';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(0,0,0,.45)'; g.fillText(letter, 35, 36);
+  g.fillStyle = st.fg; g.fillText(letter, 32, 33);
+  const t = canvasTexture(c);
+  letterTexCache.set(key, t);
+  return t;
+}
+
+// Goldmünze: Vorderseite mit geprägtem Buchstaben, Perlrand und erhabenem Rand
+function coinTexture(letter) {
+  const s = 128, c = makeCanvas(s, s), g = c.getContext('2d'), m = s / 2;
+  const gr = g.createRadialGradient(m - 18, m - 22, 4, m, m, m);
+  gr.addColorStop(0, '#fff3b0'); gr.addColorStop(0.45, '#f2c443'); gr.addColorStop(0.85, '#c8901a'); gr.addColorStop(1, '#8a5c08');
+  g.fillStyle = gr; g.fillRect(0, 0, s, s);
+  // erhabener Rand: oben links Licht, unten rechts Schatten
+  g.lineWidth = 7;
+  g.strokeStyle = '#8a5c08'; g.beginPath(); g.arc(m + 1, m + 1, m - 6, 0, Math.PI * 2); g.stroke();
+  g.strokeStyle = '#ffe58a'; g.beginPath(); g.arc(m - 1, m - 1, m - 6, Math.PI * 0.75, Math.PI * 1.75); g.stroke();
+  g.strokeStyle = '#d9a52a'; g.beginPath(); g.arc(m, m, m - 6, Math.PI * 1.75, Math.PI * 2.75); g.stroke();
+  // Perlrand
+  for (let i = 0; i < 40; i++) {
+    const a = i / 40 * Math.PI * 2, x = m + Math.cos(a) * (m - 17), y = m + Math.sin(a) * (m - 17);
+    g.fillStyle = '#9a6a0a'; g.beginPath(); g.arc(x + 0.8, y + 0.8, 2.3, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ffe58a'; g.beginPath(); g.arc(x, y, 2, 0, Math.PI * 2); g.fill();
+  }
+  // geprägter Buchstabe
+  g.font = '48px "Press Start 2P", monospace';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#4e3002'; g.fillText(letter, m + 3, m + 6);
+  g.fillStyle = '#fff6c8'; g.fillText(letter, m - 2, m + 1);
+  g.fillStyle = '#b8800e'; g.fillText(letter, m, m + 3);
+  return canvasTexture(c, false);
+}
+
+// geriffelte Münzkante
+function coinEdgeTexture() {
+  const c = makeCanvas(64, 8), g = c.getContext('2d');
+  for (let x = 0; x < 64; x += 4) {
+    g.fillStyle = '#ffd860'; g.fillRect(x, 0, 2, 8);
+    g.fillStyle = '#a87410'; g.fillRect(x + 2, 0, 2, 8);
+  }
+  const t = canvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping; t.repeat.set(10, 1);
+  return t;
+}
+
+// vierzackiger Glitzerstern
+function sparkleTexture() {
+  const s = 64, c = makeCanvas(s, s), g = c.getContext('2d'), m = s / 2;
+  const gr = g.createRadialGradient(m, m, 0, m, m, m);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.2, 'rgba(255,236,150,.8)'); gr.addColorStop(1, 'rgba(255,200,60,0)');
+  g.fillStyle = gr;
+  g.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4, r = i % 2 ? 6 : m;
+    g.lineTo(m + Math.cos(a) * r, m + Math.sin(a) * r);
+  }
+  g.fill();
+  return canvasTexture(c, false);
+}
+
+function haloTexture() {
+  const s = 64, c = makeCanvas(s, s), g = c.getContext('2d');
+  const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  gr.addColorStop(0, 'rgba(255,255,255,1)');
+  gr.addColorStop(0.4, 'rgba(255,220,120,.6)');
+  gr.addColorStop(1, 'rgba(255,160,0,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, s, s);
+  return canvasTexture(c, false);
+}
+
+// ---------------------------------------------------------------------------
+// Hintergrundbilder – selbst gemalt, passend zum Wort, monochrom (sepia).
+// Schlüssel = Bildname aus WORDS (mehrere Wörter können dasselbe Bild nutzen).
+// ---------------------------------------------------------------------------
+const PAINTERS = {
+  HUND(D) {
+    D.sky(200, 240); D.circ(540, 90, 40, 250); D.ground(370, 150);
+    D.line([[425, 285], [470, 240], [495, 195]], 95, 16);           // Schwanz
+    D.rect(250, 300, 26, 95, 75); D.rect(395, 300, 26, 95, 75);       // hintere Beine
+    D.ell(330, 290, 115, 58, 100);                                    // Körper
+    D.rect(275, 310, 26, 88, 95); D.rect(370, 310, 26, 88, 95);       // vordere Beine
+    D.ell(288, 398, 20, 9, 70); D.ell(383, 398, 20, 9, 70);
+    D.circ(220, 225, 58, 115);                                        // Kopf
+    D.rect(235, 268, 55, 14, 45);                                     // Halsband
+    D.ell(170, 248, 40, 27, 140);                                     // Schnauze
+    D.circ(136, 240, 11, 25);                                         // Nase
+    D.ell(258, 225, 20, 48, 65, -0.35);                               // Ohr
+    D.circ(205, 205, 8, 25); D.circ(207, 203, 3, 230);                // Auge
+    D.curve(150, 262, 165, 275, 185, 262, 40, 3);                     // Maul
+  },
+  HAUS(D) {
+    D.sky(190, 240); D.circ(110, 90, 35, 250); D.ground(385, 135);
+    D.rect(390, 110, 32, 90, 80);                                     // Schornstein
+    D.circ(408, 85, 16, 215); D.circ(425, 62, 20, 225); D.circ(448, 36, 24, 235);
+    D.rect(195, 225, 250, 165, 175);                                  // Wände
+    D.poly([[170, 232], [320, 105], [470, 232]], 80);                 // Dach
+    D.line([[170, 232], [320, 105], [470, 232]], 60, 6);
+    D.rect(292, 295, 56, 95, 70); D.circ(336, 345, 4, 220);           // Tür
+    for (const wx of [225, 375]) {                                     // Fenster
+      D.rect(wx, 255, 52, 48, 235);
+      D.line([[wx + 26, 255], [wx + 26, 303]], 90, 4);
+      D.line([[wx, 279], [wx + 52, 279]], 90, 4);
+      D.line([[wx, 255], [wx + 52, 255], [wx + 52, 303], [wx, 303], [wx, 255]], 90, 4);
+    }
+    D.poly([[300, 390], [340, 390], [380, 480], [260, 480]], 185);    // Weg
+    D.rect(524, 340, 14, 50, 70); D.circ(530, 320, 45, 95);           // Busch
+  },
+  BAUM(D) {
+    D.sky(195, 240); D.ground(395, 130);
+    D.poly([[295, 400], [345, 400], [335, 250], [305, 250]], 70);     // Stamm
+    D.line([[320, 280], [260, 220]], 70, 14); D.line([[322, 270], [390, 210]], 70, 14);
+    for (const [x, y, r, n] of [[320, 170, 95, 105], [230, 215, 70, 95], [410, 215, 70, 95],
+      [270, 130, 65, 120], [375, 130, 65, 120], [320, 90, 60, 130], [320, 230, 70, 110]]) D.circ(x, y, r, n);
+    for (const [x, y] of [[260, 180], [350, 140], [390, 230], [300, 240], [230, 240], [330, 95]]) D.circ(x, y, 9, 210);
+  },
+  MOND(D, g) {
+    const sky = D.sky(15, 70); D.stars(110, 330);
+    D.circ(400, 190, 105, 235);
+    g.fillStyle = sky; g.beginPath(); g.arc(350, 160, 100, 0, Math.PI * 2); g.fill();  // Sichel
+    D.circ(480, 200, 10, 205); D.circ(455, 260, 8, 210);
+    D.ell(150, 500, 320, 140, 30); D.ell(520, 520, 300, 150, 40);
+  },
+  BOOT(D) {
+    D.sky(185, 235, 340); D.circ(500, 110, 45, 250);
+    D.rect(0, 330, 640, 150, 105);
+    for (let k = 0, y = 350; y < 480; k++, y += 22)
+      for (let x = (k % 2) * 30; x < 640; x += 60) D.curve(x, y, x + 15, y - 8, x + 30, y, 150, 3);
+    D.rect(316, 140, 8, 180, 50);                                     // Mast
+    D.poly([[328, 150], [328, 305], [450, 305]], 235);                // Segel
+    D.poly([[312, 165], [312, 300], [230, 300]], 215);
+    D.poly([[324, 140], [324, 118], [360, 129]], 60);                 // Fahne
+    D.poly([[170, 315], [470, 315], [425, 375], [215, 375]], 60);     // Rumpf
+    D.line([[175, 322], [465, 322]], 180, 4);
+    D.line([[120, 120], [135, 110], [150, 120]], 60, 3); D.line([[160, 90], [172, 82], [184, 90]], 60, 3);
+  },
+  PILZ(D, g, v) {
+    D.sky(120, 200);
+    for (const x of [40, 140, 520, 600]) D.rect(x, 0, 26, 395, 110);  // Bäume im Hintergrund
+    D.ground(390, 95);
+    D.poly([[290, 400], [350, 400], [340, 260], [300, 260]], 215);    // Stiel
+    g.fillStyle = v(65); g.beginPath(); g.ellipse(320, 268, 150, 120, 0, Math.PI, 0); g.closePath(); g.fill();
+    for (const [x, y, r] of [[260, 215, 18], [330, 190, 22], [390, 225, 16], [300, 245, 12],
+      [215, 250, 10], [420, 255, 11], [360, 240, 9], [280, 175, 9]]) D.circ(x, y, r, 230);
+    D.rect(472, 360, 16, 35, 200);                                    // kleiner Pilz
+    g.fillStyle = v(80); g.beginPath(); g.ellipse(480, 362, 34, 28, 0, Math.PI, 0); g.closePath(); g.fill();
+    D.circ(470, 348, 5, 230); D.circ(492, 352, 4, 230);
+  },
+  KATZE(D) {
+    D.sky(60, 120); D.stars(40, 250); D.circ(510, 100, 50, 230);
+    D.rect(0, 400, 640, 80, 55);                                      // Mauer
+    for (let y = 400; y < 480; y += 20) D.line([[0, y], [640, y]], 35, 2);
+    D.curve(390, 380, 500, 330, 450, 220, 150, 18);                   // Schwanz
+    D.ell(320, 320, 85, 90, 150);                                     // Körper
+    D.ell(290, 405, 25, 12, 170); D.ell(350, 405, 25, 12, 170);       // Pfoten
+    D.poly([[270, 170], [262, 105], [305, 145]], 160);                // Ohren
+    D.poly([[370, 170], [378, 105], [335, 145]], 160);
+    D.poly([[274, 160], [268, 122], [296, 147]], 120);
+    D.poly([[366, 160], [372, 122], [344, 147]], 120);
+    D.circ(320, 200, 62, 160);                                        // Kopf
+    D.ell(295, 195, 13, 9, 240); D.ell(345, 195, 13, 9, 240);
+    D.ell(295, 195, 3, 8, 20); D.ell(345, 195, 3, 8, 20);
+    D.poly([[312, 218], [328, 218], [320, 228]], 80);
+    D.line([[320, 228], [320, 236]], 80, 2);
+    D.curve(308, 240, 314, 245, 320, 236, 80, 2); D.curve(320, 236, 326, 245, 332, 240, 80, 2);
+    for (const [a, b] of [[[300, 225], [240, 215]], [[300, 230], [240, 238]], [[340, 225], [400, 215]], [[340, 230], [400, 238]]])
+      D.line([a, b], 230, 2);
+  },
+  SONNE(D) {
+    D.sky(170, 225);
+    for (let i = 0; i < 12; i++) {
+      const a = i * Math.PI / 6;
+      D.line([[320 + Math.cos(a) * 105, 190 + Math.sin(a) * 105], [320 + Math.cos(a) * 160, 190 + Math.sin(a) * 160]], 245, 12);
+    }
+    D.circ(320, 190, 85, 252);
+    D.ell(110, 110, 60, 22, 235); D.ell(150, 100, 40, 25, 238); D.ell(540, 330, 70, 22, 230);
+    D.ell(140, 480, 300, 130, 120); D.ell(520, 490, 300, 150, 95);
+    D.line([[470, 80], [485, 70], [500, 80]], 60, 3); D.line([[510, 110], [522, 102], [534, 110]], 60, 3);
+  },
+  FISCH(D, g) {
+    D.sky(160, 50);
+    g.globalAlpha = 0.12;
+    for (const x of [80, 260, 450]) D.poly([[x, 0], [x + 60, 0], [x + 160, 480], [x + 40, 480]], 255);
+    g.globalAlpha = 1;
+    D.ell(320, 530, 420, 90, 120);                                    // Sand
+    for (const x of [60, 120, 520, 590]) D.curve(x, 480, x + 40, 380, x - 10, 280, 80, 10);
+    D.poly([[430, 240], [530, 165], [510, 240], [530, 315]], 170);    // Schwanzflosse
+    D.poly([[290, 175], [360, 130], [390, 185]], 160);                // Rückenflosse
+    D.ell(320, 240, 135, 78, 205);                                    // Körper
+    for (let x = 300; x < 420; x += 26) for (let y = 205; y <= 280; y += 26) D.curve(x, y - 12, x + 12, y, x, y + 12, 160, 3);
+    D.curve(240, 190, 262, 240, 240, 290, 150, 4);                    // Kiemen
+    D.circ(225, 220, 16, 250); D.circ(222, 220, 8, 20);               // Auge
+    D.curve(188, 255, 200, 262, 214, 258, 90, 3);
+    D.ring(170, 170, 10, 220, 3); D.ring(150, 120, 14, 220, 3); D.ring(175, 70, 8, 220, 3);
+  },
+  VOGEL(D) {
+    D.sky(195, 240);
+    D.line([[0, 370], [200, 355], [640, 330]], 70, 22);               // Ast
+    D.line([[420, 340], [500, 300], [560, 290]], 70, 10);
+    D.ell(500, 280, 25, 10, 110, -0.5); D.ell(560, 300, 22, 9, 110, 0.4); D.ell(120, 350, 24, 10, 110, -0.3);
+    D.line([[305, 335], [300, 350]], 50, 4); D.line([[335, 335], [335, 348]], 50, 4);
+    D.poly([[370, 290], [450, 330], [440, 300]], 110);                // Schwanz
+    D.ell(320, 290, 75, 55, 140);                                     // Körper
+    D.ell(300, 305, 45, 30, 200);                                     // Brust
+    D.circ(260, 235, 42, 145);                                        // Kopf
+    D.poly([[222, 228], [185, 240], [222, 250]], 230);                // Schnabel
+    D.circ(250, 225, 8, 20); D.circ(252, 222, 3, 240);
+    D.ell(345, 280, 58, 28, 95, 0.35);                                // Flügel
+    D.circ(160, 140, 9, 60); D.line([[168, 140], [168, 100]], 60, 3);   // Noten
+    D.circ(190, 120, 9, 60); D.line([[198, 120], [198, 80]], 60, 3); D.line([[168, 100], [198, 80]], 60, 4);
+  },
+  BLUME(D) {
+    D.sky(195, 240); D.ground(400, 120);
+    D.curve(320, 410, 300, 320, 320, 230, 60, 12);                    // Stiel
+    D.ell(275, 330, 40, 14, 80, -0.5); D.ell(360, 300, 40, 14, 80, 0.5);
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4;
+      D.ell(320 + Math.cos(a) * 55, 200 + Math.sin(a) * 55, 42, 22, 225, a);
+    }
+    D.circ(320, 200, 36, 90);
+    for (const [x, y] of [[310, 190], [330, 195], [318, 212], [304, 206], [332, 182]]) D.circ(x, y, 4, 50);
+    for (const [x, y] of [[80, 430], [150, 450], [500, 440], [580, 425]]) { D.circ(x, y, 9, 230); D.circ(x, y, 4, 90); }
+  },
+  APFEL(D) {
+    D.sky(180, 215, 360); D.rect(0, 360, 640, 120, 110); D.line([[0, 360], [640, 360]], 80, 4);
+    D.ell(320, 372, 160, 20, 80);                                     // Schatten
+    D.circ(280, 260, 100, 125); D.circ(360, 260, 100, 125); D.circ(320, 280, 95, 125);
+    D.ell(320, 168, 22, 8, 95);
+    D.ell(265, 215, 22, 40, 200, -0.4);                               // Glanz
+    D.curve(320, 175, 315, 140, 330, 110, 50, 9);                     // Stiel
+    D.ell(370, 125, 42, 16, 80, -0.4); D.line([[332, 140], [405, 112]], 55, 2);
+  },
+  SCHIFF(D) {
+    D.sky(190, 235, 320); D.rect(0, 320, 640, 160, 100);
+    D.circ(300, 120, 22, 215); D.circ(320, 95, 28, 225); D.circ(350, 70, 32, 232);
+    D.circ(375, 120, 22, 215); D.circ(395, 95, 28, 225); D.circ(425, 70, 32, 232);
+    D.rect(255, 140, 38, 70, 70); D.rect(330, 140, 38, 70, 70);       // Schornsteine
+    D.rect(255, 155, 38, 12, 215); D.rect(330, 155, 38, 12, 215);
+    D.rect(225, 200, 190, 45, 215); D.rect(180, 240, 290, 55, 200);   // Aufbauten
+    for (let x = 195; x < 455; x += 25) D.rect(x, 255, 14, 14, 80);
+    D.poly([[100, 290], [545, 290], [500, 370], [150, 370]], 55);     // Rumpf
+    for (let x = 170; x < 480; x += 40) D.circ(x, 325, 8, 230);
+    for (let k = 0, y = 385; y < 480; k++, y += 24)
+      for (let x = (k % 2) * 30; x < 640; x += 60) D.curve(x, y, x + 15, y - 8, x + 30, y, 145, 3);
+  },
+  RAKETE(D, g) {
+    D.sky(10, 60); D.stars(140, 480);
+    D.circ(110, 380, 70, 120);                                        // Planet
+    g.save(); g.translate(110, 380); g.rotate(-0.3);
+    g.strokeStyle = 'rgb(200,200,200)'; g.lineWidth = 6; g.beginPath(); g.ellipse(0, 0, 115, 22, 0, 0, Math.PI * 2); g.stroke();
+    g.restore();
+    g.save(); g.translate(340, 230); g.rotate(0.45);
+    D.poly([[-30, 110], [0, 220], [30, 110]], 250);                   // Flamme
+    D.poly([[-16, 110], [0, 170], [16, 110]], 200);
+    D.poly([[-35, 40], [-75, 120], [-35, 100]], 110);                 // Flossen
+    D.poly([[35, 40], [75, 120], [35, 100]], 110);
+    D.rect(-35, -80, 70, 190, 225);                                   // Rumpf
+    D.poly([[-35, -80], [0, -170], [35, -80]], 120);                  // Spitze
+    D.circ(0, -20, 24, 90); D.circ(0, -20, 16, 40); D.circ(-6, -26, 5, 200);
+    D.rect(-35, 60, 70, 10, 140);
+    g.restore();
+  },
+  KAKTUS(D) {
+    D.sky(215, 245); D.circ(510, 100, 55, 252);
+    D.rect(0, 380, 640, 100, 195); D.ell(480, 385, 260, 30, 180);
+    const k = 95;
+    D.rect(230, 250, 70, 30, k); D.rect(230, 180, 30, 100, k); D.circ(245, 180, 15, k);
+    D.rect(340, 220, 70, 30, k); D.rect(380, 150, 30, 100, k); D.circ(395, 150, 15, k);
+    D.rect(290, 140, 60, 250, k); D.circ(320, 140, 30, k);
+    D.line([[320, 120], [320, 385]], 70, 3); D.line([[304, 135], [304, 385]], 120, 2); D.line([[336, 135], [336, 385]], 70, 2);
+    D.line([[245, 175], [245, 265]], 70, 2); D.line([[395, 145], [395, 235]], 70, 2);
+    for (const [x, y] of [[290, 170], [350, 200], [290, 240], [350, 280], [290, 320], [350, 350], [230, 200], [260, 230], [380, 180], [410, 210]]) {
+      D.line([[x, y], [x - 6, y - 4]], 230, 2); D.line([[x, y], [x + 6, y - 4]], 230, 2);
+    }
+    D.circ(320, 108, 12, 230);
+    D.ell(150, 395, 30, 14, 120); D.ell(560, 400, 22, 10, 130);
+  },
+  SPINNE(D) {
+    D.sky(40, 90);
+    const cx = 320, cy = 220, N = 12, ang = [];
+    for (let i = 0; i < N; i++) {
+      const a = i * Math.PI * 2 / N + 0.1; ang.push(a);
+      D.line([[cx, cy], [cx + Math.cos(a) * 500, cy + Math.sin(a) * 500]], 190, 2);
+    }
+    for (let k = 1; k <= 10; k++) {
+      const r = k * 28;
+      for (let i = 0; i < N; i++) {
+        const a0 = ang[i], a1 = ang[(i + 1) % N], am = a0 + Math.PI / N;
+        D.curve(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r, cx + Math.cos(am) * r * 0.88, cy + Math.sin(am) * r * 0.88,
+          cx + Math.cos(a1) * r, cy + Math.sin(a1) * r, 175, 1.5);
+      }
+    }
+    D.line([[320, 0], [320, 250]], 200, 1.5);                         // Faden
+    for (const s of [-1, 1]) for (let j = 0; j < 4; j++)
+      D.line([[320, 265], [320 + s * (50 + j * 6), 215 + j * 28], [320 + s * (85 + j * 10), 250 + j * 35]], 25, 5);
+    D.circ(320, 295, 38, 25); D.circ(320, 250, 22, 30);
+    D.circ(320, 295, 10, 90);
+    D.circ(312, 245, 4, 230); D.circ(328, 245, 4, 230);
+  },
+  KIRSCHE(D) {
+    D.sky(200, 150);
+    D.ell(325, 405, 170, 18, 120);                                    // Schatten
+    D.curve(260, 300, 270, 180, 340, 110, 60, 6); D.curve(390, 280, 380, 170, 340, 110, 60, 6);
+    D.ell(385, 110, 50, 20, 90, -0.3); D.line([[340, 110], [425, 98]], 60, 2);
+    D.circ(260, 320, 62, 85); D.circ(390, 300, 62, 80);
+    D.ell(240, 295, 12, 20, 190, -0.5); D.ell(370, 275, 12, 20, 190, -0.5);
+  },
+  FAHRRAD(D) {
+    D.sky(195, 240); D.ground(395, 140); D.circ(110, 90, 35, 250);
+    const A = [190, 315], B = [315, 320], C = [285, 200], Dp = [430, 200], E = [455, 315];
+    for (const w of [A, E]) {
+      for (let i = 0; i < 12; i++) {
+        const a = i * Math.PI / 6;
+        D.line([w, [w[0] + Math.cos(a) * 78, w[1] + Math.sin(a) * 78]], 120, 2);
+      }
+      D.ring(w[0], w[1], 80, 40, 10); D.circ(w[0], w[1], 7, 60);
+    }
+    D.line([A, B, C, A], 70, 8); D.line([C, Dp, B], 70, 8); D.line([Dp, E], 70, 8);
+    D.line([C, [280, 180]], 50, 6); D.ell(272, 175, 32, 9, 40);       // Sattel
+    D.line([Dp, [425, 170], [455, 165]], 50, 6);                     // Lenker
+    D.circ(B[0], B[1], 16, 60); D.line([[300, 345], [330, 295]], 50, 6);
+  },
+  GITARRE(D, g) {
+    D.sky(175, 215); D.rect(0, 400, 640, 80, 120);
+    g.save(); g.translate(330, 250); g.rotate(-0.5); g.scale(0.8, 0.8);
+    D.rect(-14, -260, 28, 200, 70);                                   // Hals
+    D.rect(-22, -330, 44, 75, 50);                                    // Kopf
+    for (const y of [-310, -290, -270]) { D.circ(-28, y, 6, 200); D.circ(28, y, 6, 200); }
+    for (let y = -250; y < -70; y += 22) D.line([[-14, y], [14, y]], 180, 2);
+    D.circ(0, -30, 78, 140); D.circ(0, 80, 100, 140);                 // Korpus
+    D.ring(0, 10, 34, 190, 4); D.circ(0, 10, 30, 30);                 // Schallloch
+    D.rect(-35, 105, 70, 14, 60);                                     // Steg
+    for (let k = 0; k < 6; k++) D.line([[-10 + k * 4, -325], [-10 + k * 4, 110]], 230, 1);
+    g.restore();
+  },
+  ELEFANT(D) {
+    D.sky(200, 240); D.ground(395, 150); D.circ(540, 80, 40, 250);
+    D.line([[520, 260], [545, 320]], 110, 5);                         // Schwanz
+    D.rect(300, 320, 45, 85, 105); D.rect(455, 320, 45, 85, 105);     // hintere Beine
+    D.ell(390, 270, 140, 90, 135);                                    // Körper
+    D.rect(330, 330, 45, 75, 125); D.rect(410, 330, 45, 75, 125);     // vordere Beine
+    D.circ(240, 230, 72, 140);                                        // Kopf
+    D.curve(195, 260, 150, 330, 180, 400, 140, 32);                   // Rüssel
+    D.curve(180, 400, 195, 412, 205, 395, 140, 22);
+    D.poly([[205, 275], [175, 310], [195, 300], [220, 280]], 240);    // Stoßzahn
+    D.ell(285, 235, 55, 78, 120); D.ell(290, 235, 42, 62, 105);       // Ohr
+    D.circ(215, 210, 7, 25);
+  },
+  _(D) {
+    D.sky(120, 220);
+    for (let i = 0; i < 8; i++) D.ell(80 * i, 400 - (i % 3) * 30, 120, 60, 80 + i * 10);
+  },
+};
+
+const bgCache = new Map();
+
+function backgroundTexture(image) {
+  if (bgCache.has(image)) return bgCache.get(image);
+  const W = 640, H = 480, c = makeCanvas(W, H), g = c.getContext('2d');
+  let seed = 0;
+  for (const ch of image) seed = seed * 31 + ch.charCodeAt(0);
+  const rnd = rng(seed);
+  const v = n => `rgb(${n},${n},${n})`;
+  const path = pts => { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); };
+  const D = {
+    rect(x, y, w, h, n) { g.fillStyle = v(n); g.fillRect(x, y, w, h); },
+    circ(x, y, r, n) { g.fillStyle = v(n); g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); },
+    ring(x, y, r, n, w) { g.strokeStyle = v(n); g.lineWidth = w; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke(); },
+    ell(x, y, rx, ry, n, rot = 0) { g.fillStyle = v(n); g.beginPath(); g.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2); g.fill(); },
+    poly(pts, n) { g.fillStyle = v(n); path(pts); g.closePath(); g.fill(); },
+    line(pts, n, w) { g.strokeStyle = v(n); g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; path(pts); g.stroke(); },
+    curve(x0, y0, cx, cy, x1, y1, n, w) {
+      g.strokeStyle = v(n); g.lineWidth = w; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo(cx, cy, x1, y1); g.stroke();
+    },
+    sky(a, b, h = H) {
+      const gr = g.createLinearGradient(0, 0, 0, h);
+      gr.addColorStop(0, v(a)); gr.addColorStop(1, v(b));
+      g.fillStyle = gr; g.fillRect(0, 0, W, h);
+      return gr;
+    },
+    ground(y, n) {
+      g.fillStyle = v(n); g.fillRect(0, y, W, H - y);
+      for (let i = 0; i < 120; i++) {
+        const x = rnd() * W, yy = y + rnd() * (H - y);
+        D.line([[x, yy], [x + rnd() * 6 - 3, yy - 6 - rnd() * 8]], n - 30, 2);
+      }
+    },
+    stars(n, maxY) { for (let i = 0; i < n; i++) D.circ(rnd() * W, rnd() * maxY, rnd() * 1.8 + 0.4, 230); },
+  };
+  (PAINTERS[image] || PAINTERS._)(D, g, v);
+
+  // Sepia-Tonung, Vignette, Papierkörnung; abgedunkelt, damit das Spielfeld lesbar bleibt
+  const img = g.getImageData(0, 0, W, H), d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const p = i >> 2, x = p % W, y = (p / W) | 0;
+    const dx = (x - W / 2) / (W / 2), dy = (y - H / 2) / (H / 2);
+    const vig = 1 - 0.45 * (dx * dx + dy * dy);
+    let l = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+    l = Math.max(0, Math.min(1, l * vig * 0.72 + (rnd() - 0.5) * 0.06));
+    d[i] = 20 + l * 225; d[i + 1] = 12 + l * 180; d[i + 2] = 4 + l * 120;
+  }
+  g.putImageData(img, 0, 0);
+  const t = canvasTexture(c);
+  // Bild (4:3) auf das Seitenverhältnis des Rahmens zuschneiden statt es zu verzerren
+  const ry = (W / H) / (COLS / ROWS);
+  t.repeat.set(1, ry); t.offset.set(0, (1 - ry) / 2);
+  bgCache.set(image, t);
+  return t;
+}
+
+// ---------------------------------------------------------------------------
+// Sound (kleine Retro-Pieptöne)
+// ---------------------------------------------------------------------------
+let actx = null, muted = false;
+
+function initAudio() {
+  if (actx) return;
+  try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { actx = null; }
+}
+
+function tone(f, t0, dur, type = 'square', vol = 0.06, f2 = 0) {
+  if (!actx || muted) return;
+  const t = actx.currentTime + t0, o = actx.createOscillator(), gn = actx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f, t);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+  gn.gain.setValueAtTime(vol, t);
+  gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(gn).connect(actx.destination);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+
+const SFX = {
+  bounce: () => tone(180, 0, 0.05, 'square', 0.02),
+  wrong: () => tone(150, 0, 0.12, 'triangle', 0.06, 90),
+  crack: () => tone(300, 0, 0.08, 'sawtooth', 0.05, 120),
+  crumble: () => { tone(220, 0, 0.18, 'sawtooth', 0.06, 50); tone(90, 0.03, 0.2, 'square', 0.04, 40); },
+  collect: () => [660, 880, 1320].forEach((f, i) => tone(f, i * 0.06, 0.1, 'square', 0.05)),
+  key: () => [880, 1320, 1760].forEach((f, i) => tone(f, i * 0.07, 0.12, 'square', 0.04)),
+  unlock: () => { tone(300, 0, 0.06, 'square', 0.05); tone(600, 0.07, 0.15, 'square', 0.05, 900); },
+  locked: () => tone(120, 0, 0.08, 'square', 0.04),
+  tick: () => tone(1200, 0, 0.03, 'square', 0.02),
+  diamond: () => [1568, 2093, 2637, 3136].forEach((f, i) => tone(f, i * 0.05, 0.15, 'triangle', 0.05)),
+  coin: (kind) => { const f = kind === 'n' ? 1568 : 1175; tone(f, 0, 0.05, 'square', 0.035); tone(f * 1.5, 0.05, 0.18, 'triangle', 0.04); },
+  land: () => { tone(1976, 0, 0.07, 'square', 0.035); tone(2637, 0.06, 0.35, 'triangle', 0.05); },  // Münz-"Kling"
+  die: () => tone(440, 0, 0.8, 'sawtooth', 0.07, 40),
+  level: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.12, 0.18, 'square', 0.06)),
+};
+
+// ---------------------------------------------------------------------------
+// Three.js-Szene
+// ---------------------------------------------------------------------------
+const canvas = document.getElementById('game');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+renderer.setPixelRatio(1);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
+let camDist = 30;
+
+// Feste Szenenbeleuchtung – die Scheibe selbst ist keine Lichtquelle
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const dirLight = new THREE.DirectionalLight(0xfff4e0, 0.85);
+dirLight.position.set(-6, 10, 14);
+scene.add(dirLight);
+
+// Hintergrundbild: MeshBasicMaterial -> wird von keinem Licht beeinflusst.
+// Genau so groß wie der äußerste Mauerrahmen des Spielfelds.
+const bgMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const bgMesh = new THREE.Mesh(new THREE.PlaneGeometry(COLS, ROWS), bgMat);
+bgMesh.position.set(COLS / 2, ROWS / 2, BG_Z);
+scene.add(bgMesh);
+
+const boxGeo = new THREE.BoxGeometry(0.98, 0.98, 0.98);
+const wallMat = new THREE.MeshLambertMaterial({ map: wallTexture() });
+const skullMat = new THREE.MeshLambertMaterial({ map: skullTexture() });
+const debrisGeo = new THREE.BoxGeometry(0.18, 0.18, 0.18);
+const brittleMats = { 1: new THREE.MeshLambertMaterial({ map: wallTexture(1) }),
+                      2: new THREE.MeshLambertMaterial({ map: wallTexture(2) }),
+                      3: new THREE.MeshLambertMaterial({ map: wallTexture(3) }),
+                      4: new THREE.MeshLambertMaterial({ map: wallTexture(4) }) };
+const debrisMat = new THREE.MeshLambertMaterial({ color: 0x3355cc });
+const wallDebrisMat = new THREE.MeshLambertMaterial({ color: 0x968c7a });   // Grau mit leichtem Sepia-Ton
+const flyGeo = new THREE.BoxGeometry(0.85, 0.85, 0.3);
+
+// Eingesammelte Buchstaben sind Goldmünzen (Vorderseite zeigt zur Kamera)
+const coinGeo = new THREE.CylinderGeometry(0.47, 0.47, 0.12, 40);
+coinGeo.rotateX(Math.PI / 2);
+coinGeo.rotateZ(Math.PI / 2);   // Deckel-UVs so drehen, dass der Buchstabe aufrecht steht
+const coinEdgeMat = new THREE.MeshPhongMaterial({ map: coinEdgeTexture(), specular: 0xfff0b0, shininess: 60, emissive: 0x3a2400 });
+const coinMatCache = new Map();
+function coinMaterials(letter) {
+  if (!coinMatCache.has(letter)) {
+    const face = new THREE.MeshPhongMaterial({ map: coinTexture(letter), specular: 0xfff0b0, shininess: 70, emissive: 0x2a1a00 });
+    coinMatCache.set(letter, [coinEdgeMat, face, face]);   // Gruppen: Kante, Vorderseite, Rückseite
+  }
+  return coinMatCache.get(letter);
+}
+// Diamant: geschliffener Edelstein (Krone + spitzes Unterteil), dreht sich langsam
+const diamondMat = new THREE.MeshPhongMaterial({
+  color: 0x9fe8ff, specular: 0xffffff, shininess: 120, emissive: 0x12384a, flatShading: true });
+const diamondDebrisMat = new THREE.MeshLambertMaterial({ color: 0xbff3ff, emissive: 0x204858 });
+const diamondCrownGeo = new THREE.CylinderGeometry(0.24, 0.42, 0.2, 8);
+diamondCrownGeo.translate(0, 0.14, 0);
+const diamondPavilionGeo = new THREE.ConeGeometry(0.42, 0.5, 8);
+diamondPavilionGeo.rotateX(Math.PI);
+diamondPavilionGeo.translate(0, -0.21, 0);
+function makeDiamond() {
+  const gem = new THREE.Group(), body = new THREE.Group();
+  body.add(new THREE.Mesh(diamondCrownGeo, diamondMat), new THREE.Mesh(diamondPavilionGeo, diamondMat));
+  body.rotation.x = 0.3;            // leicht zur Kamera geneigt, damit die Krone sichtbar ist
+  gem.add(body);
+  gem.userData.spin = body;
+  return gem;
+}
+
+// Blech- und Bronzemünzen: kleine 3D-Münzen mit geprägtem Wert, stehen still
+const smallCoinGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.08, 28);
+smallCoinGeo.rotateX(Math.PI / 2);
+smallCoinGeo.rotateZ(Math.PI / 2);   // Wert auf der Vorderseite aufrecht
+const smallCoinMats = {}, coinDebrisMats = {};
+function makeCoin(kind) {
+  if (!smallCoinMats[kind]) {        // erst beim Levelaufbau erzeugt, wenn die Pixelschrift geladen ist
+    const k = COINS[kind];
+    // matt (Lambert): keine Lichtreflexe
+    const face = new THREE.MeshLambertMaterial({ map: canvasTexture(coinCanvas(kind, null), false) });
+    const edge = new THREE.MeshLambertMaterial({ color: k.hex });
+    smallCoinMats[kind] = [edge, face, face];
+    coinDebrisMats[kind] = new THREE.MeshLambertMaterial({ color: k.hex });
+  }
+  return new THREE.Mesh(smallCoinGeo, smallCoinMats[kind]);
+}
+
+// Schlösser (Würfel mit Schloss-Textur) und Schlüssel (3D-Modell aus Ring, Schaft und Bart, dreht sich langsam)
+const lockMats = {}, keyMats = {}, keyDebrisMats = {};
+for (const [c, k] of Object.entries(KEY_COLORS)) {
+  lockMats[c] = new THREE.MeshLambertMaterial({ map: canvasTexture(lockCanvas(c)) });
+  keyMats[c] = new THREE.MeshPhongMaterial({ color: k.hex, specular: 0xffffff, shininess: 90, emissive: k.hex, emissiveIntensity: 0.15 });
+  keyDebrisMats[c] = new THREE.MeshLambertMaterial({ color: k.hex });
+}
+const keyRingGeo = new THREE.TorusGeometry(0.15, 0.055, 8, 20);
+const keyShaftGeo = new THREE.BoxGeometry(0.42, 0.08, 0.08);
+const keyBitGeo = new THREE.BoxGeometry(0.06, 0.13, 0.08);
+function makeKey(color) {
+  const key = new THREE.Group(), body = new THREE.Group(), m = keyMats[color];
+  const part = (geo, x, y) => { const p = new THREE.Mesh(geo, m); p.position.set(x, y, 0); body.add(p); };
+  part(keyRingGeo, -0.2, 0);
+  part(keyShaftGeo, 0.14, 0);
+  part(keyBitGeo, 0.24, -0.09);
+  part(keyBitGeo, 0.33, -0.08);
+  body.rotation.z = -0.45;         // schräg gestellt: Ring oben, Bart zeigt nach unten
+  body.scale.setScalar(0.87);
+  key.add(body);
+  key.userData.spin = key;
+  return key;
+}
+
+const sparkleMat = new THREE.SpriteMaterial({
+  map: sparkleTexture(), color: 0xffe9a0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+const ballMesh = new THREE.Mesh(
+  new THREE.CylinderGeometry(R, R, 0.22, 28),
+  new THREE.MeshLambertMaterial({ color: 0xffd800 }));
+ballMesh.geometry.rotateX(Math.PI / 2);
+scene.add(ballMesh);
+
+const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: haloTexture(), color: 0xffc040, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+scene.add(halo);
+
+const levelGroup = new THREE.Group();
+scene.add(levelGroup);
+
+// ---------------------------------------------------------------------------
+// Flugzeug: fliegt zwischen Kamera und Spielfeld seine Bahnen und zieht die deutsche
+// Übersetzung des aktuellen Worts als Buchstabenkette hinter sich her.
+// Es fliegt immer von links nach rechts, damit die Kette lesbar bleibt; am rechten Rand
+// verschwindet es und kommt auf der nächsten Bahn links wieder herein. Unterwegs fliegt es
+// auf den Betrachter zu und wieder von ihm weg (Tiefe z zwischen PLANE_ZMIN und PLANE_ZMAX).
+// ---------------------------------------------------------------------------
+const PLANE_ZMIN = 1.5, PLANE_ZMAX = 11;    // zwischen Spielfeld (z = 0) und Kamera
+const PLANE_SPEED = 2.6;
+const PLANE_LANES = [3.8, -3.0, 0.8];       // Höhe der Bahnen relativ zur Bildmitte (bei z = 0)
+const CHAIN_GAP = 0.62, CHAIN_ROPE = 1.0, PLANE_TAIL = 0.55, MAX_CHAIN = 24;
+const chainGeo = new THREE.BoxGeometry(0.56, 0.56, 0.06);
+
+function buildPlane() {
+  const root = new THREE.Group(), body = new THREE.Group();
+  const red = new THREE.MeshLambertMaterial({ color: 0xc8302c });
+  const white = new THREE.MeshLambertMaterial({ color: 0xf2efe6 });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x302a22 });
+  const box = (w, h, d, mat, x, y, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z); body.add(m);
+    return m;
+  };
+  box(1.1, 0.26, 0.26, red, 0, 0, 0);           // Rumpf
+  box(0.3, 0.18, 0.2, dark, 0.12, 0.2, 0);      // Kanzel
+  box(0.34, 0.05, 1.5, white, 0.1, 0.02, 0);    // Tragfläche
+  box(0.22, 0.34, 0.05, red, -0.5, 0.22, 0);    // Seitenleitwerk
+  box(0.2, 0.04, 0.6, white, -0.5, 0.04, 0);    // Höhenleitwerk
+  box(0.08, 0.12, 0.12, dark, 0.58, 0, 0);      // Nase
+  const prop = box(0.03, 0.62, 0.08, dark, 0.64, 0, 0);
+  body.rotation.x = 0.35;                       // leicht gekippt, damit die Tragflächen sichtbar sind
+  root.add(body);
+  return { root, prop };
+}
+
+const plane = buildPlane();
+scene.add(plane.root);
+const ropePos = new Float32Array((MAX_CHAIN + 1) * 3);
+const ropeGeo = new THREE.BufferGeometry();
+ropeGeo.setAttribute('position', new THREE.BufferAttribute(ropePos, 3));
+const rope = new THREE.Line(ropeGeo, new THREE.LineBasicMaterial({ color: 0x3a2a10 }));
+rope.frustumCulled = false;
+scene.add(rope);
+const banner = { text: '', chain: [], head: null, lane: 0 };
+
+function setBannerText(text) {
+  if (banner.text === text) return;
+  banner.chain.forEach(m => m && scene.remove(m));
+  banner.text = text;
+  banner.chain = [...text.slice(0, MAX_CHAIN)].map(ch => {
+    if (ch === ' ') return null;   // Wortzwischenraum: nur Abstand
+    const m = new THREE.Mesh(chainGeo, new THREE.MeshLambertMaterial({ map: letterTexture(ch, 'banner') }));
+    scene.add(m);
+    return m;
+  });
+}
+
+// Flugbahn als Funktion der x-Position s: Wellen in der Höhe und in der Tiefe. Die Höhe wird mit der
+// Tiefe skaliert, damit die Bahn auch nah an der Kamera an derselben Stelle im Bild bleibt.
+function pathPoint(s, out) {
+  const l = banner.lane;
+  const z = (PLANE_ZMIN + PLANE_ZMAX) / 2 + (PLANE_ZMAX - PLANE_ZMIN) / 2 * Math.sin(s * 0.33 + l * 2.1);
+  const y = CY + (PLANE_LANES[l] + 0.45 * Math.sin(s * 0.9 + l)) * (camDist - z) / camDist;
+  return out.set(s, y, z);
+}
+
+const _p = new THREE.Vector3(), _q = new THREE.Vector3(), _nose = new THREE.Vector3(1, 0, 0);
+// richtet ein Objekt (Nase = +x) entlang der Flugbahn an der Stelle s aus;
+// yaw < 1 dämpft die Drehung in die Tiefe (Buchstaben bleiben so zur Kamera hin lesbar)
+function alongPath(obj, s, yaw = 1) {
+  pathPoint(s, obj.position);
+  pathPoint(s + 0.05, _q).sub(obj.position);
+  _q.z *= yaw;
+  _q.normalize();
+  obj.quaternion.setFromUnitVectors(_nose, _q);
+}
+
+function updatePlane(dt) {
+  const halfW = (camDist - PLANE_ZMIN) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
+  const left = CX - halfW - 1.5, right = CX + halfW + 1.5;
+  const n = banner.chain.length, len = PLANE_TAIL + CHAIN_ROPE + n * CHAIN_GAP;
+  if (banner.head === null) banner.head = left;
+  banner.head += PLANE_SPEED * dt;
+  if (banner.head - len > right) {           // Kette ganz draußen -> nächste Bahn
+    banner.head = left;
+    banner.lane = (banner.lane + 1) % PLANE_LANES.length;
+  }
+  const h = banner.head;
+  alongPath(plane.root, h);
+  plane.prop.rotation.x += dt * 40;
+  // Buchstabe 0 hängt am weitesten hinten, der letzte direkt am Seil
+  let k = 0;
+  const tail = h - PLANE_TAIL;
+  ropePos.set(pathPoint(tail, _p).toArray(), k++ * 3);
+  for (let i = n - 1; i >= 0; i--) {
+    const s = tail - CHAIN_ROPE - (n - 1 - i) * CHAIN_GAP, m = banner.chain[i];
+    ropePos.set(pathPoint(s, _p).toArray(), k++ * 3);
+    if (!m) continue;
+    alongPath(m, s, 0.3);
+    m.rotateX(0.3 * Math.sin(time * 5 + i * 0.8));   // flattert im Wind
+  }
+  ropeGeo.setDrawRange(0, k);
+  ropeGeo.attributes.position.needsUpdate = true;
+}
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  const scale = Math.min(1, 960 / w);   // niedrige Renderauflösung -> Retro-Pixel
+  renderer.setSize(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)), false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  camDist = Math.max(15.4 / 2 / t, 18.4 / 2 / (t * camera.aspect));
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------------------------------------------------------------------------
+// Spielzustand
+// ---------------------------------------------------------------------------
+let state = 'title', stateT = 0, time = 0;
+let levelNo = 0, lives = START_LIVES, word = '', article = '', image = '', german = '';
+let score = 0, levelStartScore = 0, highscore = loadHighscore(), timeLeft = DEFAULT_TIME;
+let tiles = [], letterStones = [], slots = [], curIdx = 0, start = { x: 1.5, y: 1.5 };
+let flights = [], debris = [], popups = [], sparkles = [], deathTile = null;
+const ball = { x: 0, y: 0, vy: VSPEED, knockT: 0, knockDir: 0 };
+const keys = { left: false, right: false };
+const usedWords = new Set();
+const heldKeys = new Set();          // eingesammelte Schlüsselfarben (y, g, u, r)
+
+const msgEl = document.getElementById('msg');
+function showMsg(html) { msgEl.innerHTML = `<div class="box">${html}</div>`; msgEl.classList.remove('hidden'); }
+function hideMsg() { msgEl.classList.add('hidden'); }
+function updateHud() {
+  document.getElementById('hudLevel').textContent = `LEVEL ${levelNo + 1}/${LEVELS.length}`;
+  document.getElementById('hudScore').textContent = `PUNKTE ${score}`;
+  document.getElementById('hudHigh').textContent = `HI ${Math.max(highscore, score)}`;
+  document.getElementById('hudLives').textContent = `LEBEN ${lives}`;
+}
+function setState(s) { state = s; stateT = 0; }
+
+// ---------------------------------------------------------------------------
+// Zeitbegrenzung: Skelett mit Sanduhr (Pixelgrafik), darunter die Restzeit
+// ---------------------------------------------------------------------------
+const skelCanvas = document.getElementById('skeleton'), skel = skelCanvas.getContext('2d');
+const timeEl = document.getElementById('timeText');
+let shownTime = null;
+
+function drawSkeleton(frac, flowing) {
+  const px = (x, y, w, h, c) => { skel.fillStyle = c; skel.fillRect(x, y, w, h); };
+  const B = '#eee3c4', b = '#a8987a', k = '#1a120a', G = '#7a4a1e', g = 'rgba(200,230,240,.35)', s = '#e8b84a';
+  skel.clearRect(0, 0, 24, 24);
+  // Skelett: Schädel, Wirbelsäule, Rippen, Becken, Beine, Arme
+  px(3, 1, 7, 5, B); px(4, 6, 5, 2, B); px(3, 5, 1, 1, b); px(9, 5, 1, 1, b);
+  px(4, 3, 2, 2, k); px(7, 3, 2, 2, k); px(6, 5, 1, 1, k); px(5, 7, 1, 1, k); px(7, 7, 1, 1, k);
+  px(6, 8, 1, 8, B);
+  for (const y of [9, 11, 13]) { px(4, y, 5, 1, B); px(4, y + 1, 5, 1, b); px(6, y + 1, 1, 1, B); }
+  px(4, 16, 5, 2, B); px(5, 17, 3, 1, b);
+  px(4, 18, 1, 5, B); px(8, 18, 1, 5, B); px(3, 23, 2, 1, B); px(8, 23, 2, 1, B);
+  px(3, 9, 1, 1, B); px(2, 10, 1, 5, B); px(2, 15, 1, 1, b);                 // linker Arm hängt
+  px(9, 9, 1, 1, B); px(10, 10, 3, 1, B); px(13, 11, 1, 1, B);              // rechter Arm hält die Sanduhr
+  // Sanduhr: Holzrahmen, Glas, Sand (oben = verbleibende Zeit)
+  px(14, 3, 8, 2, G); px(14, 19, 8, 2, G); px(14, 5, 1, 14, G); px(21, 5, 1, 14, G);
+  const rows = [6, 6, 4, 4, 2, 2];
+  const bulb = (y, w, c) => px(15 + (6 - w) / 2, y, w, 1, c);
+  rows.forEach((w, i) => { bulb(5 + i, w, g); bulb(18 - i, w, g); });
+  px(17, 11, 2, 2, g);
+  const top = Math.round(frac * 6), bottom = 6 - top;
+  for (let i = 0; i < top; i++) bulb(10 - i, rows[5 - i], s);
+  for (let i = 0; i < bottom; i++) bulb(18 - i, rows[i], s);
+  if (flowing) px(17, 11, 1, 2, s);                                         // rieselnder Sand
+}
+
+function updateTimer() {
+  const secs = Math.max(0, Math.ceil(timeLeft));
+  const flowing = state === 'play' && timeLeft > 0 && Math.floor(time * 4) % 2 === 0;
+  const key = secs + '|' + flowing;
+  if (key === shownTime) return;
+  shownTime = key;
+  timeEl.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  timeEl.classList.toggle('low', secs <= LOW_TIME);
+  const total = LEVELS[levelNo] ? LEVELS[levelNo].time : DEFAULT_TIME;
+  drawSkeleton(Math.min(1, timeLeft / total), flowing);
+}
+
+function timeUp() {
+  deathTile = null;
+  SFX.die();
+  setState('dying');
+  showMsg('<h2>ZEIT ABGELAUFEN!</h2>');
+}
+
+// Punkte und Highscore
+function loadHighscore() {
+  try { return parseInt(localStorage.getItem('sball.highscore'), 10) || 0; } catch (e) { return 0; }
+}
+function commitHighscore() {
+  if (score <= highscore) return false;
+  highscore = score;
+  try { localStorage.setItem('sball.highscore', String(highscore)); } catch (e) { /* ohne Speicher weiterspielen */ }
+  return true;
+}
+function addPoints(n, pos) {
+  score += n;
+  updateHud();
+  const el = document.getElementById('hudScore');
+  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  spawnPopup('+' + n, pos);
+}
+function spawnPopup(text, pos) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTexture(text), depthTest: false, transparent: true }));
+  s.scale.set(2.4, 0.6, 1);
+  s.position.set(pos.x, pos.y + 0.3, 1.5);
+  s.renderOrder = 10;
+  levelGroup.add(s);
+  popups.push({ sprite: s, t: 0 });
+}
+
+function letterCount(map) { return (map.join('').match(/[1-9]/g) || []).length; }
+
+function pickWord(n) {
+  const list = WORDS[n];
+  let candidates = list.filter(e => !usedWords.has(e[1]));
+  if (!candidates.length) { list.forEach(e => usedWords.delete(e[1])); candidates = list.slice(); }
+  const e = candidates[Math.floor(Math.random() * candidates.length)];
+  usedWords.add(e[1]);
+  [article, word, image, german] = e;
+}
+
+function tilePos(c, r) { return new THREE.Vector3(c + 0.5, ROWS - 1 - r + 0.5, 0); }
+// Zeile unter dem Spielfeld: Artikel, Lücke, Wort – zusammen zentriert
+function wordRowX(k) { return CX + (k - (article.length + word.length) / 2) * 1.05; }
+function slotPos(i) { return new THREE.Vector3(wordRowX(article.length + 1 + i), WORD_Y, 0); }
+
+function buildLevel() {
+  while (levelGroup.children.length) levelGroup.remove(levelGroup.children[0]);
+  flights = []; debris = []; popups = []; sparkles = []; deathTile = null;
+  const map = LEVELS[levelNo].map, letterTiles = [];
+  timeLeft = LEVELS[levelNo].time;   // bei jedem (Neu-)Start des Levels wieder die volle Zeit
+  heldKeys.clear();                  // Schlüssel gelten nur im aktuellen Versuch
+  updateKeysHud();
+  tiles = [];
+  for (let r = 0; r < ROWS; r++) {
+    const row = [];
+    for (let c = 0; c < COLS; c++) {
+      const ch = map[r][c];
+      let t = null;
+      if (ch === '#') t = { type: 'wall', mesh: new THREE.Mesh(boxGeo, wallMat) };
+      else if (ch === 'X') t = { type: 'skull', mesh: new THREE.Mesh(boxGeo, skullMat) };
+      else if ('abcd'.includes(ch)) {
+        const hp = 'abcd'.indexOf(ch) + 1;
+        t = { type: 'brittle', hp, mesh: new THREE.Mesh(boxGeo, brittleMats[hp]) };
+      }
+      else if (ch === 'D') t = { type: 'diamond', mesh: makeDiamond() };
+      else if (COINS[ch]) t = { type: 'coin', kind: ch, mesh: makeCoin(ch) };
+      else if (KEY_COLORS[ch]) t = { type: 'key', color: ch, mesh: makeKey(ch) };
+      else if (KEY_COLORS[ch.toLowerCase()]) {
+        t = { type: 'lock', color: ch.toLowerCase(), mesh: new THREE.Mesh(boxGeo, lockMats[ch.toLowerCase()]) };
+      }
+      else if (ch >= '1' && ch <= '9') { t = { type: 'letter', index: +ch - 1 }; letterTiles.push(t); }
+      else if (ch === 'S') start = { x: c + 0.5, y: ROWS - 1 - r + 0.5 };
+      if (t) { t.c = c; t.r = r; }
+      row.push(t);
+    }
+    tiles.push(row);
+  }
+  // Buchstaben des Worts auf die Buchstabensteine verteilen: Stein Nr. n trägt den n-ten Buchstaben.
+  // Die Reihenfolge steht fest in den Level-Daten, nach einem Neustart leuchtet also derselbe Stein zuerst.
+  letterTiles.sort((a, b) => a.index - b.index);
+  letterStones = letterTiles.map(t => {
+    t.letter = word[t.index];
+    const tex = letterTexture(t.letter, 'stone');
+    t.mesh = new THREE.Mesh(boxGeo, new THREE.MeshLambertMaterial({ map: tex, emissiveMap: tex, emissive: 0x000000 }));
+    return t;
+  });
+  for (const row of tiles) for (const t of row) if (t) {
+    t.mesh.position.copy(tilePos(t.c, t.r));
+    levelGroup.add(t.mesh);
+  }
+  // Wort unter dem Spielfeld (zunächst "leer"/schattenhaft)
+  slots = [...word].map((l, i) => {
+    const mesh = new THREE.Mesh(flyGeo, new THREE.MeshBasicMaterial({ map: letterTexture(l, 'ghost') }));
+    mesh.position.copy(slotPos(i));
+    levelGroup.add(mesh);
+    return { mesh, letter: l, pop: 0 };
+  });
+  // Artikel (zeigt das Geschlecht): le = blau, la = rot
+  [...article].forEach((l, k) => {
+    const mesh = new THREE.Mesh(flyGeo, new THREE.MeshLambertMaterial({ map: letterTexture(l, article === 'LA' ? 'fem' : 'masc') }));
+    mesh.position.set(wordRowX(k), WORD_Y, 0);
+    levelGroup.add(mesh);
+  });
+  curIdx = 0;
+  ball.x = start.x; ball.y = start.y; ball.vy = VSPEED; ball.knockT = 0;
+  ballMesh.visible = true; ballMesh.scale.set(1, 1, 1);
+  bgMat.map = backgroundTexture(image); bgMat.needsUpdate = true;
+  setBannerText(german);
+  updateHud();
+}
+
+function newLevel() {
+  pickWord(letterCount(LEVELS[levelNo].map));
+  levelStartScore = score;
+  buildLevel();
+  startIntro();
+}
+
+function articleColor() { return article === 'LA' ? '#ff7fb0' : '#8fb4ff'; }
+
+function startIntro() {
+  setState('intro');
+  showMsg(`<h2>LEVEL ${levelNo + 1}</h2><p>Sammle die Buchstaben:</p>
+    <p style="font-size:22px;color:#ffd800"><span style="color:${articleColor()}">${article}</span> ${[...word].join(' ')}</p>`);
+}
+
+// nächster Level – nach dem letzten Level ist das Spiel gewonnen
+function advanceLevel() {
+  levelNo++;
+  if (levelNo >= LEVELS.length) {
+    setState('victory');
+    showMsg(`<h1>GEWONNEN!</h1><p>Alle ${LEVELS.length} Level geschafft.</p><p>PUNKTE: ${score}</p>${highscoreLine()}
+      <p class="blink">LEERTASTE: NEUES SPIEL</p>`);
+  } else newLevel();
+}
+
+function startGame() {
+  lives = START_LIVES; levelNo = 0; score = 0; usedWords.clear();
+  newLevel();
+}
+
+// ---------------------------------------------------------------------------
+// Physik & Kollisionen
+// ---------------------------------------------------------------------------
+function tileAt(c, r) {
+  if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return { type: 'wall', c, r };
+  return tiles[r][c];
+}
+
+// Abstand zwischen Scheibenmittelpunkt und Würfelrand je Achse (0, wenn innerhalb der Würfelbreite)
+function gapX(t) { return Math.max(0, Math.abs(ball.x - (t.c + 0.5)) - HALF); }
+function gapY(t) { return Math.max(0, Math.abs(ball.y - (ROWS - 1 - t.r + 0.5)) - HALF); }
+
+// Kreis (Scheibe) gegen Würfel in tatsächlicher, sichtbarer Größe
+function overlaps() {
+  const res = [];
+  const c0 = Math.floor(ball.x - R), c1 = Math.floor(ball.x + R);
+  const y0 = Math.floor(ball.y - R), y1 = Math.floor(ball.y + R);
+  for (let yb = y0; yb <= y1; yb++) for (let c = c0; c <= c1; c++) {
+    const t = tileAt(c, ROWS - 1 - yb);
+    if (!t) continue;
+    const dx = gapX(t), dy = gapY(t);
+    if (dx * dx + dy * dy < R * R) res.push(t);
+  }
+  return res;
+}
+
+// liefert true, wenn der Spieler gestorben ist
+function handleHits(hits) {
+  const skull = hits.find(t => t.type === 'skull');
+  if (skull) { die(skull); return true; }
+  const brittle = hits.filter(t => t.type === 'brittle');
+  brittle.forEach(crumble);
+  const diamonds = hits.filter(t => t.type === 'diamond');
+  diamonds.forEach(collectDiamond);
+  const coins = hits.filter(t => t.type === 'coin');
+  coins.forEach(collectCoin);
+  const keyHits = hits.filter(t => t.type === 'key');
+  keyHits.forEach(collectKey);
+  const locks = hits.filter(t => t.type === 'lock'), opened = locks.filter(t => heldKeys.has(t.color));
+  opened.forEach(openLock);
+  const cur = hits.find(t => t.type === 'letter' && t.index === curIdx);
+  if (cur) collect(cur);
+  else if (hits.some(t => t.type === 'letter')) SFX.wrong();
+  else if (brittle.length || diamonds.length || coins.length || keyHits.length || opened.length) { /* eigener Ton */ }
+  else if (locks.length) SFX.locked();
+  else SFX.bounce();
+  return false;
+}
+
+// Schlüssel: wird bei Berührung eingesammelt und unten rechts angezeigt
+function collectKey(t) {
+  tiles[t.r][t.c] = null;
+  levelGroup.remove(t.mesh);
+  heldKeys.add(t.color);
+  updateKeysHud();
+  SFX.key();
+}
+
+// Schloss: mit passendem Schlüssel verschwindet es bei Berührung, sonst ist es eine unzerstörbare Mauer
+function openLock(t) {
+  const p = tilePos(t.c, t.r);
+  tiles[t.r][t.c] = null;
+  levelGroup.remove(t.mesh);
+  spawnDebris(p, keyDebrisMats[t.color], 10);
+  SFX.unlock();
+}
+
+const keyIconCache = {};
+function updateKeysHud() {
+  const list = document.getElementById('keyList');
+  list.innerHTML = '';
+  for (const color of Object.keys(KEY_COLORS)) {
+    if (!heldKeys.has(color)) continue;
+    const img = document.createElement('img');
+    img.src = keyIconCache[color] || (keyIconCache[color] = keyCanvas(color, null).toDataURL());
+    img.alt = `Schlüssel ${KEY_COLORS[color].name}`;
+    list.appendChild(img);
+  }
+  document.getElementById('keys').classList.toggle('hidden', !heldKeys.size);
+}
+
+// Diamant: verschwindet bei Berührung (wie Brüchiger Mauerstein 1) und bringt Bonuspunkte
+function collectDiamond(t) {
+  const p = tilePos(t.c, t.r);
+  tiles[t.r][t.c] = null;
+  levelGroup.remove(t.mesh);
+  spawnDebris(p, diamondDebrisMat, 14);
+  SFX.diamond();
+  addPoints(POINTS.diamond, p);
+}
+
+// Blech- und Bronzemünze: verhalten sich wie der Diamant, bringen aber nur 5 bzw. 25 Bonuspunkte
+function collectCoin(t) {
+  const p = tilePos(t.c, t.r);
+  tiles[t.r][t.c] = null;
+  levelGroup.remove(t.mesh);
+  spawnDebris(p, coinDebrisMats[t.kind], 8);
+  SFX.coin(t.kind);
+  addPoints(COINS[t.kind].points, p);
+}
+
+// Brüchiger Mauerstein: 4 -> 3 -> 2 -> 1 -> verschwindet
+function crumble(t) {
+  const p = tilePos(t.c, t.r);
+  if (t.hp > 1) {
+    t.hp--;
+    t.mesh.material = brittleMats[t.hp];
+    spawnDebris(p, wallDebrisMat, 4);
+    SFX.crack();
+  } else {
+    tiles[t.r][t.c] = null;
+    levelGroup.remove(t.mesh);
+    spawnDebris(p, wallDebrisMat, 14);
+    SFX.crumble();
+    addPoints(POINTS.brittle, p);
+  }
+}
+
+function step(h) {
+  let vx;
+  if (ball.knockT > 0) { ball.knockT -= h; vx = ball.knockDir * KNOCK_SPEED; }
+  else vx = ((keys.right ? 1 : 0) - (keys.left ? 1 : 0)) * HSPEED;
+
+  if (vx) {
+    ball.x += vx * h;
+    const hits = overlaps();
+    if (hits.length) {
+      // zurück bis zur Berührungsposition (bei Ecken entsprechend weniger weit)
+      const reach = t => Math.sqrt(Math.max(0, R * R - gapY(t) ** 2));
+      if (vx > 0) ball.x = Math.min(...hits.map(t => t.c + 0.5 - HALF - reach(t))) - EPS;
+      else ball.x = Math.max(...hits.map(t => t.c + 0.5 + HALF + reach(t))) + EPS;
+      // Seitliches Abprallen nur bei Anflug durch den Spieler (verhindert Ping-Pong in engen Gängen)
+      if (ball.knockT > 0) ball.knockT = 0;
+      else { ball.knockDir = -Math.sign(vx); ball.knockT = KNOCK_TIME; }      if (handleHits(hits)) return;
+    }
+  }
+
+  ball.y += ball.vy * h;
+  const hits = overlaps();
+  if (hits.length) {
+    const reach = t => Math.sqrt(Math.max(0, R * R - gapX(t) ** 2));
+    const cy = t => ROWS - 1 - t.r + 0.5;
+    if (ball.vy > 0) ball.y = Math.min(...hits.map(t => cy(t) - HALF - reach(t))) - EPS;
+    else ball.y = Math.max(...hits.map(t => cy(t) + HALF + reach(t))) + EPS;    ball.vy = -ball.vy;
+    handleHits(hits);
+  }
+}
+
+function collect(t) {
+  tiles[t.r][t.c] = null;
+  levelGroup.remove(t.mesh);
+  const p = tilePos(t.c, t.r);
+  spawnDebris(p);
+  // Buchstabe fliegt im Bogen Richtung Kamera und dann an seine Position im Wort
+  const target = slotPos(t.index);
+  target.z = 0.2;
+  const mesh = new THREE.Mesh(coinGeo, coinMaterials(t.letter));
+  mesh.position.copy(p);
+  levelGroup.add(mesh);
+  flights.push({
+    mesh, index: t.index, t: 0, dur: 1.6,
+    p0: p.clone(), c1: p.clone().add(new THREE.Vector3(0, 1.0, 9)),
+    c2: target.clone().add(new THREE.Vector3(0, 2.5, 7)), p3: target,
+  });
+  curIdx++;
+  SFX.collect();
+  addPoints(POINTS.letter, p);
+  if (curIdx >= word.length) setState('complete');
+}
+
+function die(tile) {
+  deathTile = tile;
+  SFX.die();
+  setState('dying');
+}
+
+function spawnSparkle(p, spread) {
+  const sprite = new THREE.Sprite(sparkleMat.clone());
+  sprite.position.set(p.x + (Math.random() - 0.5) * 2 * spread, p.y + (Math.random() - 0.5) * 2 * spread, p.z + 0.3);
+  const a = Math.random() * Math.PI * 2, life = 0.4 + Math.random() * 0.4;
+  sparkles.push({ sprite, vel: new THREE.Vector3(Math.cos(a) * 0.6, Math.sin(a) * 0.6, 0), life, max: life,
+                  size: 0.35 + Math.random() * 0.35 });
+  sprite.scale.setScalar(0.01);
+  levelGroup.add(sprite);
+}
+
+function spawnDebris(p, mat = debrisMat, count = 12) {
+  for (let i = 0; i < count; i++) {
+    const m = new THREE.Mesh(debrisGeo, mat);
+    m.position.copy(p);
+    const a = Math.random() * Math.PI * 2, s = 2 + Math.random() * 3;
+    debris.push({ mesh: m, vel: new THREE.Vector3(Math.cos(a) * s, Math.sin(a) * s + 2, 2 + Math.random() * 4), life: 0.9 });
+    levelGroup.add(m);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Update-Schleife
+// ---------------------------------------------------------------------------
+function bezier(p0, c1, c2, p3, t, out) {
+  const u = 1 - t;
+  out.set(0, 0, 0)
+    .addScaledVector(p0, u * u * u).addScaledVector(c1, 3 * u * u * t)
+    .addScaledVector(c2, 3 * u * t * t).addScaledVector(p3, t * t * t);
+  return out;
+}
+const ease = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+function updateEffects(dt) {
+  for (let i = flights.length - 1; i >= 0; i--) {
+    const f = flights[i];
+    f.t = Math.min(1, f.t + dt / f.dur);
+    const e = ease(f.t);
+    bezier(f.p0, f.c1, f.c2, f.p3, e, f.mesh.position);
+    f.mesh.rotation.y = e * Math.PI * 4;            // Münze dreht sich und zeigt am Ende wieder die Vorderseite
+    f.mesh.rotation.x = Math.sin(e * Math.PI) * 0.6;
+    const s = 1 + Math.sin(e * Math.PI) * 0.5;
+    f.mesh.scale.set(s, s, s);
+    if (Math.random() < dt * 25) spawnSparkle(f.mesh.position, 0.35 * s);   // Glitzerspur
+    if (f.t >= 1) {
+      levelGroup.remove(f.mesh);
+      flights.splice(i, 1);
+      const slot = slots[f.index];
+      slot.mesh.geometry = coinGeo;
+      slot.mesh.material = coinMaterials(slot.letter);
+      slot.pop = 0.3;
+      SFX.land();
+    }
+  }
+  slots.forEach(slot => {
+    if (slot.pop <= 0) return;
+    slot.pop = Math.max(0, slot.pop - dt);
+    const s = 1 + 0.4 * Math.sin(slot.pop / 0.3 * Math.PI);
+    slot.mesh.scale.set(s, s, s);
+  });
+  for (let i = sparkles.length - 1; i >= 0; i--) {
+    const sp = sparkles[i];
+    sp.life -= dt;
+    sp.sprite.position.addScaledVector(sp.vel, dt);
+    const k = Math.max(0, sp.life / sp.max);
+    sp.sprite.scale.setScalar(sp.size * Math.sin(k * Math.PI));
+    sp.sprite.material.rotation += dt * 3;
+    if (sp.life <= 0) { levelGroup.remove(sp.sprite); sparkles.splice(i, 1); }
+  }
+  for (let i = debris.length - 1; i >= 0; i--) {
+    const d = debris[i];
+    d.life -= dt;
+    d.vel.y -= 12 * dt;
+    d.mesh.position.addScaledVector(d.vel, dt);
+    d.mesh.rotation.x += dt * 8; d.mesh.rotation.y += dt * 6;
+    d.mesh.scale.setScalar(Math.max(0.01, d.life / 0.9));
+    if (d.life <= 0) { levelGroup.remove(d.mesh); debris.splice(i, 1); }
+  }
+  // Diamanten drehen sich langsam, damit die Facetten im Licht funkeln
+  // Schlüssel schwenken nur leicht hin und her, damit sie immer von vorne erkennbar bleiben
+  for (const row of tiles) for (const t of row) {
+    if (!t) continue;
+    if (t.type === 'diamond') t.mesh.userData.spin.rotation.y = time * 1.2 + t.c;
+    else if (t.type === 'key') t.mesh.userData.spin.rotation.y = 0.5 * Math.sin(time * 1.5 + t.c);  }
+  // Punkte-Einblendung: steigt auf und blinkt
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i];
+    p.t += dt;
+    p.sprite.position.y += dt * 0.8;
+    p.sprite.visible = Math.floor(p.t * 10) % 2 === 0;
+    if (p.t > 1.1) { levelGroup.remove(p.sprite); popups.splice(i, 1); }
+  }
+}
+
+function updateGlow() {
+  const cur = letterStones[curIdx];
+  const active = cur && tiles[cur.r][cur.c] === cur && state !== 'title';
+  halo.visible = !!active;
+  if (!active) return;
+  const mat = cur.mesh.material, tex = letterTexture(cur.letter, 'active');
+  if (mat.map !== tex) { mat.map = tex; mat.emissiveMap = tex; mat.needsUpdate = true; }
+  const p = 0.5 + 0.5 * Math.sin(time * 6);
+  cur.mesh.material.emissive.setRGB(0.6 + 0.6 * p, 0.45 + 0.4 * p, 0.15 + 0.15 * p);
+  cur.mesh.scale.setScalar(1 + 0.06 * p);
+  halo.position.set(cur.mesh.position.x, cur.mesh.position.y, -0.4);
+  halo.scale.setScalar(2.2 + 0.6 * p);
+}
+
+function update(dt) {
+  stateT += dt;
+  if (state === 'play') {
+    const n = Math.ceil(dt / 0.008), h = dt / n;
+    for (let i = 0; i < n && state === 'play'; i++) step(h);
+    if (state === 'play') {
+      const before = Math.ceil(timeLeft);
+      timeLeft -= dt;
+      if (timeLeft <= 0) { timeLeft = 0; timeUp(); }
+      else if (Math.ceil(timeLeft) < before && before <= LOW_TIME) SFX.tick();   // Ticken in den letzten Sekunden
+    }
+  } else if (state === 'intro') {
+    if (stateT > 1.8) { hideMsg(); setState('play'); }
+  } else if (state === 'dying') {
+    ballMesh.visible = Math.floor(stateT * 12) % 2 === 0;
+    ballMesh.scale.setScalar(Math.max(0.05, 1 - stateT / 1.2));
+    if (deathTile && deathTile.mesh) {
+      const base = tilePos(deathTile.c, deathTile.r);
+      deathTile.mesh.position.set(base.x + (Math.random() - 0.5) * 0.15, base.y + (Math.random() - 0.5) * 0.15, 0);
+    }
+    if (stateT > 1.2) {
+      lives--;
+      score = levelStartScore;   // Punkte des abgebrochenen Levels verfallen
+      updateHud();
+      if (lives <= 0) {
+        ballMesh.visible = false;
+        setState('gameover');
+        showMsg(`<h2>GAME OVER</h2><p>PUNKTE: ${score}</p>${highscoreLine()}<p class="blink">LEERTASTE: NEUES SPIEL</p>`);
+      } else {
+        buildLevel();   // Level mit demselben Wort von vorne
+        startIntro();
+      }
+    }
+  } else if (state === 'complete') {
+    if (!flights.length && stateT > 0.3) {
+      setState('won');
+      SFX.level();
+      // französisches Wort und deutsche Übersetzung noch einmal zusammen: beide bedeuten dasselbe
+      showMsg(`<h2>LEVEL GESCHAFFT!</h2>
+        <p style="font-size:22px;color:#ffd800"><span style="color:${articleColor()}">${article}</span> ${word}</p>
+        <p>BEDEUTET AUF DEUTSCH</p>
+        <p style="font-size:22px;color:#f1e6c8">${german}</p>`);
+    }
+  } else if (state === 'won') {
+    if (stateT > 3.2) advanceLevel();   // etwas länger, damit man beide Wörter lesen kann
+  }
+  updateEffects(dt);
+  updatePlane(dt);
+}
+
+function highscoreLine() {
+  return commitHighscore() ? '<p style="color:#ffd800">NEUER HIGHSCORE!</p>' : `<p>HIGHSCORE: ${highscore}</p>`;
+}
+
+let last = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (state !== 'paused') { time += dt; update(dt); }
+  updateGlow();
+  updateTimer();
+  ballMesh.position.set(ball.x, ball.y, 0);
+  const vx = ball.knockT > 0 ? ball.knockDir : (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  ballMesh.rotation.y += ((state === 'play' ? -vx * 0.5 : 0) - ballMesh.rotation.y) * 0.2;
+  // Kamera steht senkrecht über der Szenenmitte
+  camera.position.set(CX, CY, camDist);
+  camera.lookAt(CX, CY, 0);
+  renderer.render(scene, camera);
+}
+
+// ---------------------------------------------------------------------------
+// Eingabe
+// ---------------------------------------------------------------------------
+let pausedFrom = null;
+const IN_GAME = ['intro', 'play', 'paused', 'complete', 'won'];   // Zustände, in denen N und M wirken
+window.addEventListener('keydown', e => {
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) e.preventDefault();
+  initAudio();
+  if (e.key === 'ArrowLeft') keys.left = true;
+  else if (e.key === 'ArrowRight') keys.right = true;
+  else if (e.key === ' ' || e.key === 'Enter') {
+    if (state === 'title' || state === 'gameover' || state === 'victory') startGame();
+  } else if (e.key === 'p' || e.key === 'P') {
+    if (state === 'paused') { setState(pausedFrom); hideMsg(); }
+    else if (state === 'play') { pausedFrom = state; setState('paused'); showMsg('<h2>PAUSE</h2><p>P: WEITER</p>'); }
+  } else if (e.key === 't' || e.key === 'T') muted = !muted;
+  else if (e.key === 'n' || e.key === 'N') {          // in den nächsten Level springen
+    if (IN_GAME.includes(state)) advanceLevel();
+  } else if (e.key === 'm' || e.key === 'M') {        // ein Leben hinzufügen
+    if (IN_GAME.includes(state) || state === 'dying') { lives++; updateHud(); }
+  }
+});
+window.addEventListener('keyup', e => {
+  if (e.key === 'ArrowLeft') keys.left = false;
+  else if (e.key === 'ArrowRight') keys.right = false;
+});
+window.addEventListener('blur', () => { keys.left = keys.right = false; });
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+function init() {
+  const errors = levelErrors();
+  if (errors.length) {
+    showMsg(`<h2>FEHLER IN DEN LEVEL-DATEN</h2>${errors.map(e => `<p>${e}</p>`).join('')}`);
+    return;
+  }
+  pickWord(letterCount(LEVELS[0].map));
+  buildLevel();
+  showMsg(`<h1>LETTER<br>BOUNCE</h1>
+    <p>Lerne französische Wörter: Berühre die Buchstabensteine in der Reihenfolge des Wortes.</p>
+    <p>Der leuchtende Stein ist der nächste.</p>
+    <p>Grüne Totenkopf-Steine kosten ein Leben!</p>
+    <p>Rissige Mauersteine zerbrechen beim Anstoßen.</p>
+    <p>Diamanten bringen 250 Bonuspunkte, Bronzemünzen 25 und Blechmünzen 5.</p>
+    <p>Farbige Schlösser öffnen sich mit dem Schlüssel derselben Farbe.</p>
+    <p>Achte auf die Sanduhr: Läuft die Zeit ab, kostet das ein Leben.</p>
+    <p>&larr; &rarr; STEUERN &nbsp; P PAUSE &nbsp; T TON</p>
+    <p>N NÄCHSTER LEVEL &nbsp; M EXTRA-LEBEN</p>
+    <p class="blink" style="color:#ffd800;margin-top:18px">LEERTASTE ZUM STARTEN</p>`);
+  requestAnimationFrame(frame);
+}
+
+// Pixel-Schrift laden, bevor Buchstabentexturen erzeugt werden
+Promise.race([
+  document.fonts ? document.fonts.load('32px "Press Start 2P"') : Promise.resolve(),
+  new Promise(r => setTimeout(r, 1500)),
+]).catch(() => {}).then(init);
+</script>
+</body>
+</html>

@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Letter Bounce Leveleditor</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #0d0b08; --panel: #1c1710; --line: #3a2f1c; --text: #ffe9a8; --accent: #ffd800; --muted: #a8956a;
+          --err: #ff6b6b; --ok: #8fe388; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: "Press Start 2P", monospace; }
+  body { padding: 16px; }
+  h1 { font-size: 20px; color: var(--accent); margin: 0 0 16px; text-shadow: 3px 3px 0 #000; }
+  h2 { font-size: 11px; color: var(--accent); margin: 0 0 12px; }
+  .layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  .panel { background: var(--panel); border: 3px solid var(--line); padding: 12px; }
+  .palette { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 330px; align-content: start; }
+  .palette h2 { grid-column: 1 / -1; }
+  .tool { display: flex; align-items: center; gap: 10px; background: #000; color: var(--text); border: 3px solid var(--line);
+          padding: 6px; font: inherit; font-size: 9px; text-align: left; cursor: pointer; }
+  .tool span { line-height: 1.5; }
+  .tool canvas { width: 32px; height: 32px; image-rendering: pixelated; flex: none; }
+  .tool .key { margin-left: auto; color: var(--muted); }
+  .tool.active { border-color: var(--accent); background: #2a2210; }
+  .board { flex: 1 1 560px; min-width: 0; }
+  #grid { display: block; width: 100%; max-width: 816px; image-rendering: pixelated; cursor: crosshair;
+          border: 3px solid var(--line); touch-action: none; }
+  .hint { font-size: 8px; line-height: 1.8; color: var(--muted); margin: 10px 0 0; }
+  .side { width: 320px; display: flex; flex-direction: column; gap: 16px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+  label { font-size: 9px; }
+  select, button, textarea, input { font: inherit; font-size: 9px; }
+  input[type=number] { width: 44px; background: #000; color: var(--text); border: 2px solid var(--line); padding: 6px; }
+  .time { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 9px; }
+  select { background: #000; color: var(--text); border: 2px solid var(--line); padding: 6px; }
+  button.btn { background: #000; color: var(--text); border: 3px solid var(--line); padding: 8px 10px; cursor: pointer; }
+  button.btn:hover, .tool:hover { border-color: var(--muted); }
+  button.primary { border-color: var(--accent); color: var(--accent); }
+  #status { list-style: none; margin: 0; padding: 0; font-size: 8px; line-height: 1.9; }
+  #status .err { color: var(--err); } #status .warn { color: var(--accent); } #status .ok { color: var(--ok); }
+  #out { width: 100%; box-sizing: border-box; height: 280px; background: #000; color: var(--text); border: 2px solid var(--line);
+         padding: 8px; font-family: Consolas, "Courier New", monospace; font-size: 12px; line-height: 1.35; resize: vertical; }
+  #copyMsg { font-size: 8px; color: var(--ok); min-height: 1em; }
+  @media (max-width: 720px) { .palette, .side { width: 100%; } .palette { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<h1>LETTER BOUNCE LEVELEDITOR</h1>
+<div class="layout">
+  <div class="panel palette" id="palette"><h2>ELEMENTE</h2></div>
+
+  <div class="panel board">
+    <canvas id="grid"></canvas>
+    <p class="hint">Linke Maustaste: malen &middot; Rechte Maustaste: löschen &middot; Strg+Z: rückgängig<br>
+      Tasten # X L S A B C . wählen das Element; d = Brüchig 4, D (mit Umschalt) = Diamant; n = Bronzemünze, m = Blechmünze; y g u r = Schlüssel, Y G U R = Schloss (gelb, grün, blau, rot). Es gibt genau eine Startposition (S).<br>
+      Buchstabensteine werden durchnummeriert (1 = erster Buchstabe des Worts): Ein neuer Stein erhält
+      die kleinste freie Nummer. Zum Umsortieren Steine löschen und in der gewünschten Reihenfolge neu setzen.</p>
+  </div>
+
+  <div class="side">
+    <div class="panel">
+      <h2>LEVEL</h2>
+      <div class="row">
+        <select id="template"></select>
+        <button class="btn" id="loadBtn">LADEN</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="undoBtn">RÜCKGÄNGIG</button>
+      </div>
+      <div class="row">
+        <label for="timeMin">Zeitbegrenzung (Min:Sek):</label>
+        <span class="time">
+          <input type="number" id="timeMin" min="0" max="59" step="1" aria-label="Minuten">:<input
+            type="number" id="timeSec" min="0" max="59" step="5" aria-label="Sekunden">
+        </span>
+      </div>
+      <ul id="status"></ul>
+    </div>
+
+    <div class="panel">
+      <h2>COPY-TO-CLIPBOARD</h2>
+      <div class="row">
+        <label for="levelNo">Ziel-Datei:</label>
+        <select id="levelNo"></select>
+      </div>
+      <textarea id="out" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn primary" id="copyBtn">IN ZWISCHENABLAGE KOPIEREN</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="parseBtn">TEXT EINLESEN</button>
+      </div>
+      <div id="copyMsg"></div>
+      <p class="hint">Den kopierten Text als kompletten Inhalt der Ziel-Datei (z.&nbsp;B. levels/level3.js) einfügen.
+        Mit „Text einlesen“ lässt sich eingefügter Level-Text wieder in den Editor übernehmen.</p>
+    </div>
+  </div>
+</div>
+
+<script src="tiles.js"></script>
+<script src="words.js"></script>
+<script src="levels/level1.js"></script>
+<script src="levels/level2.js"></script>
+<script src="levels/level3.js"></script>
+<script src="levels/level4.js"></script>
+<script src="levels/level5.js"></script>
+<script src="levels/level6.js"></script>
+<script src="levels/level7.js"></script>
+<script src="levels/level8.js"></script>
+<script src="levels/level9.js"></script>
+<script src="levels/level10.js"></script>
+<script src="levels/level11.js"></script>
+<script src="levels/level12.js"></script>
+<script src="levels/level13.js"></script>
+<script src="levels/level14.js"></script>
+<script src="levels/level15.js"></script>
+<script src="levels/level16.js"></script>
+<script src="levels/level17.js"></script>
+<script src="levels/level18.js"></script>
+<script src="levels/level19.js"></script>
+<script src="levels/level20.js"></script>
+<script>
+'use strict';
+
+const COLS = 17, ROWS = 12, CELL = 32;
+const LEVELS = window.SBALL_LEVELS || [];
+const STORE_KEY = 'sball.editor.draft2';   // neues Format: Buchstabensteine 1–9, brüchige Steine a/b/c
+const LETTER = 'L';                          // Werkzeug "Buchstabe" – setzt die nächste freie Nummer 1–9
+const isLetter = ch => ch >= '1' && ch <= '9';
+
+const TOOLS = [
+  { ch: '#', key: '#', name: 'Mauer' },
+  { ch: 'X', key: 'X', name: 'Totenkopf' },
+  { ch: LETTER, key: 'L', name: 'Buchstabe' },
+  { ch: 'S', key: 'S', name: 'Start' },
+  { ch: 'd', key: 'd', name: 'Brüchig 4' },
+  { ch: 'c', key: 'C', name: 'Brüchig 3' },
+  { ch: 'b', key: 'B', name: 'Brüchig 2' },
+  { ch: 'a', key: 'A', name: 'Brüchig 1' },
+  { ch: 'D', key: 'D', name: 'Diamant' },
+  { ch: 'n', key: 'n', name: 'Bronzemünze' },
+  { ch: 'm', key: 'm', name: 'Blechmünze' },
+  // Schlüssel: Kleinbuchstabe, Schloss: Großbuchstabe (Taste mit Umschalt)
+  ...Object.entries(KEY_COLORS).flatMap(([c, k]) => [
+    { ch: c, key: c, name: `Schlüssel ${k.name}` },
+    { ch: c.toUpperCase(), key: c.toUpperCase(), name: `Schloss ${k.name}` },
+  ]),
+  { ch: '.', key: '.', name: 'Leer' },
+];
+
+// ---------------------------------------------------------------------------
+// Grafik der Elemente (Mauer, Totenkopf, brüchige Steine aus tiles.js – wie im Spiel)
+// ---------------------------------------------------------------------------
+function letterCanvas(label) {
+  const s = 32, c = makeCanvas(s, s), g = c.getContext('2d');
+  g.fillStyle = '#7a4a24'; g.fillRect(0, 0, s, s);
+  bevel(g, s, '#a8713f', '#3f2410', 2);
+  g.font = '14px "Press Start 2P", monospace';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#f3e2c8'; g.fillText(label, 16, 17);
+  return c;
+}
+
+function startCanvas() {
+  const s = 32, c = emptyCanvas(), g = c.getContext('2d');
+  g.fillStyle = '#8a7000'; g.beginPath(); g.arc(s / 2 + 1, s / 2 + 1, 11, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#ffd800'; g.beginPath(); g.arc(s / 2, s / 2, 11, 0, Math.PI * 2); g.fill();
+  return c;
+}
+
+function emptyCanvas() {
+  const s = 32, c = makeCanvas(s, s), g = c.getContext('2d');
+  g.fillStyle = '#16120b'; g.fillRect(0, 0, s, s);
+  g.fillStyle = '#2c2416'; g.fillRect(15, 15, 2, 2);
+  return c;
+}
+
+let IMG = {};
+function buildImages() {
+  IMG = { '#': wallCanvas(0), 'X': skullCanvas(), [LETTER]: letterCanvas('A'), 'S': startCanvas(),
+          'a': wallCanvas(1), 'b': wallCanvas(2), 'c': wallCanvas(3), 'd': wallCanvas(4), 'D': diamondCanvas(),
+          'm': coinCanvas('m'), 'n': coinCanvas('n'), '.': emptyCanvas() };
+  for (let n = 1; n <= 9; n++) IMG[String(n)] = letterCanvas(String(n));
+  for (const c of Object.keys(KEY_COLORS)) { IMG[c] = keyCanvas(c); IMG[c.toUpperCase()] = lockCanvas(c); }
+}
+
+// ---------------------------------------------------------------------------
+// Level-Daten
+// ---------------------------------------------------------------------------
+let grid = [], tool = '#', history = [];
+
+function emptyLevel() {
+  const rows = [];
+  for (let r = 0; r < ROWS; r++) {
+    let row = '';
+    for (let c = 0; c < COLS; c++) row += (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) ? '#' : '.';
+    rows.push(row);
+  }
+  rows[Math.floor(ROWS / 2)] = rows[Math.floor(ROWS / 2)].slice(0, 8) + 'S' + rows[Math.floor(ROWS / 2)].slice(9);
+  return rows;
+}
+
+function setGrid(rows) { grid = rows.map(r => [...r]); }
+function rows() { return grid.map(r => r.join('')); }
+
+function pushHistory() {
+  history.push(rows());
+  if (history.length > 100) history.shift();
+}
+
+function undo() {
+  if (!history.length) return;
+  setGrid(history.pop());
+  changed();
+}
+
+// kleinste noch nicht vergebene Nummer für einen Buchstabenstein (null, wenn 1–9 belegt sind)
+function nextLetter() {
+  const used = new Set(rows().join('').match(/[1-9]/g) || []);
+  for (let n = 1; n <= 9; n++) if (!used.has(String(n))) return String(n);
+  return null;
+}
+
+function paint(c, r, ch) {
+  if (ch === LETTER) {
+    if (isLetter(grid[r][c])) return false;   // vorhandene Nummer beim Übermalen behalten
+    ch = nextLetter();
+    if (!ch) return false;
+  }
+  if (grid[r][c] === ch) return false;
+  if (ch === 'S') for (const row of grid) for (let i = 0; i < COLS; i++) if (row[i] === 'S') row[i] = '.';
+  grid[r][c] = ch;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Darstellung
+// ---------------------------------------------------------------------------
+const canvas = document.getElementById('grid');
+canvas.width = COLS * CELL; canvas.height = ROWS * CELL;
+const g = canvas.getContext('2d');
+g.imageSmoothingEnabled = false;
+let hover = null;
+
+function draw() {
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) g.drawImage(IMG[grid[r][c]], c * CELL, r * CELL);
+  g.strokeStyle = 'rgba(255,233,168,.08)'; g.lineWidth = 1;
+  for (let c = 1; c < COLS; c++) { g.beginPath(); g.moveTo(c * CELL + 0.5, 0); g.lineTo(c * CELL + 0.5, ROWS * CELL); g.stroke(); }
+  for (let r = 1; r < ROWS; r++) { g.beginPath(); g.moveTo(0, r * CELL + 0.5); g.lineTo(COLS * CELL, r * CELL + 0.5); g.stroke(); }
+  if (hover) {
+    const preview = tool === LETTER ? (isLetter(grid[hover.r][hover.c]) ? grid[hover.r][hover.c] : nextLetter()) : tool;
+    g.globalAlpha = 0.6; if (preview) g.drawImage(IMG[preview], hover.c * CELL, hover.r * CELL); g.globalAlpha = 1;
+    g.strokeStyle = '#ffd800'; g.lineWidth = 2; g.strokeRect(hover.c * CELL + 1, hover.r * CELL + 1, CELL - 2, CELL - 2);
+  }
+}
+
+const LEVEL_LEGEND = `// time: Zeitbegrenzung des Levels in Sekunden (z. B. 180 = 3:00 Minuten).
+// map:  Jede Zeile ist eine Reihe des Spielfelds (genau 17 Zeichen, 12 Zeilen).
+//   #    Mauer
+//   X    Totenkopf-Stein
+//   1-9  Buchstabenstein, durchnummeriert: 1 = erster Buchstabe des Worts, 2 = zweiter usw.
+//        Jede Nummer genau einmal, lückenlos ab 1. Anzahl = Wortlänge (in words.js muss es
+//        Wörter dieser Länge geben).
+//   S    Startposition der Scheibe (genau einmal)
+//   a    Brüchiger Mauerstein 1 (verschwindet beim ersten Stoß)
+//   b    Brüchiger Mauerstein 2 (wird beim Stoß zu 1)
+//   c    Brüchiger Mauerstein 3 (wird beim Stoß zu 2)
+//   d    Brüchiger Mauerstein 4 (wird beim Stoß zu 3)
+//   D    Diamant (verschwindet bei Berührung, 250 Bonuspunkte)
+//   n    Bronzemünze (verschwindet bei Berührung, 25 Bonuspunkte)
+//   m    Blechmünze (verschwindet bei Berührung, 5 Bonuspunkte)
+//   y g u r  Schlüssel gelb, grün, blau, rot (wird bei Berührung eingesammelt)
+//   Y G U R  Schloss gelb, grün, blau, rot (unzerstörbar, außer man hat den Schlüssel derselben Farbe)
+//   .    frei
+// Der äußere Rand sollte komplett aus Mauer (#) bestehen.`;
+
+function fileText(n) {
+  return `// Letter Bounce – Level ${n}
+//
+${LEVEL_LEGEND}
+
+(window.SBALL_LEVELS = window.SBALL_LEVELS || [])[${n - 1}] = {
+  time: ${timeLimit},
+  map: [
+${rows().map(r => `    '${r}',`).join('\n')}
+  ],
+};
+`;
+}
+
+// ---------------------------------------------------------------------------
+// Zeitbegrenzung (Eingabe als Minuten : Sekunden, gespeichert in Sekunden)
+// ---------------------------------------------------------------------------
+const DEFAULT_TIME = 180;
+let timeLimit = DEFAULT_TIME;
+const timeMinEl = document.getElementById('timeMin'), timeSecEl = document.getElementById('timeSec');
+
+function setTime(secs) {
+  timeLimit = Math.max(10, Math.min(3599, Math.round(secs) || DEFAULT_TIME));
+  timeMinEl.value = Math.floor(timeLimit / 60);
+  timeSecEl.value = String(timeLimit % 60).padStart(2, '0');
+}
+
+function readTime() {
+  const secs = (parseInt(timeMinEl.value, 10) || 0) * 60 + (parseInt(timeSecEl.value, 10) || 0);
+  setTime(secs);
+  changed();
+}
+timeMinEl.addEventListener('change', readTime);
+timeSecEl.addEventListener('change', readTime);
+
+// Level-Daten aus der Datei: { time, map } oder (älteres Format) nur das Zeilen-Array
+const levelMap = l => Array.isArray(l) ? l : l.map;
+const levelTime = l => (Array.isArray(l) || !(l.time > 0)) ? DEFAULT_TIME : l.time;
+
+function checks() {
+  const s = rows().join(''), res = [];
+  const starts = s.split('S').length - 1, nums = (s.match(/[1-9]/g) || []).sort(), letters = nums.length;
+  if (starts !== 1) res.push(['err', `Startposition (S): ${starts} statt genau 1`]);
+  else res.push(['ok', 'Startposition gesetzt']);
+  const lengths = Object.keys(WORDS).join(', ');
+  if (!letters) res.push(['err', 'Keine Buchstabensteine']);
+  else if (!WORDS[letters]) res.push(['err', `${letters} Buchstabensteine – keine Wörter dieser Länge (vorhanden: ${lengths})`]);
+  else res.push(['ok', `${letters} Buchstabensteine – ${WORDS[letters].length} passende Wörter`]);
+  const missing = [], doubled = [];
+  for (let n = 1; n <= letters; n++) {
+    const k = nums.filter(x => x === String(n)).length;
+    if (!k) missing.push(n); else if (k > 1) doubled.push(n);
+  }
+  if (missing.length) res.push(['err', `Nummerierung lückenhaft – es fehlt: ${missing.join(', ')}`]);
+  if (doubled.length) res.push(['err', `Nummer mehrfach vergeben: ${doubled.join(', ')}`]);
+  if (letters && !missing.length && !doubled.length) res.push(['ok', `Reihenfolge der Buchstaben: 1–${letters}`]);
+  for (const [c, k] of Object.entries(KEY_COLORS)) {
+    if (s.includes(c.toUpperCase()) && !s.includes(c)) res.push(['warn', `Schloss ${k.name} ohne passenden Schlüssel`]);
+  }
+  const border = [...grid[0], ...grid[ROWS - 1], ...grid.map(r => r[0]), ...grid.map(r => r[COLS - 1])];
+  if (border.some(ch => ch !== '#')) res.push(['warn', 'Rand ist nicht vollständig Mauer (#)']);
+  return res;
+}
+
+function changed() {
+  draw();
+  document.getElementById('status').innerHTML = checks().map(([cls, t]) => `<li class="${cls}">${t}</li>`).join('');
+  document.getElementById('out').value = fileText(+document.getElementById('levelNo').value);
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ time: timeLimit, map: rows() })); } catch (e) { /* Entwurf nicht speicherbar */ }
+}
+
+// ---------------------------------------------------------------------------
+// Palette
+// ---------------------------------------------------------------------------
+function buildPalette() {
+  const pal = document.getElementById('palette');
+  for (const t of TOOLS) {
+    const b = document.createElement('button');
+    b.className = 'tool'; b.dataset.ch = t.ch;
+    const cv = makeCanvas(32, 32); cv.getContext('2d').drawImage(IMG[t.ch], 0, 0);
+    const name = document.createElement('span'); name.textContent = t.name;
+    const key = document.createElement('span'); key.className = 'key'; key.textContent = t.key;
+    b.append(cv, name, key);
+    b.addEventListener('click', () => selectTool(t.ch));
+    pal.appendChild(b);
+  }
+  selectTool(tool);
+}
+
+function selectTool(ch) {
+  tool = ch;
+  document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.ch === ch));
+  draw();
+}
+
+// ---------------------------------------------------------------------------
+// Maus
+// ---------------------------------------------------------------------------
+let painting = null;     // Zeichen, das gerade gemalt wird (null = nicht am Malen)
+let strokeStart = null;  // Zustand vor dem aktuellen Malstrich (für Rückgängig)
+
+function cellAt(e) {
+  const rect = canvas.getBoundingClientRect();
+  const c = Math.floor((e.clientX - rect.left) / rect.width * COLS);
+  const r = Math.floor((e.clientY - rect.top) / rect.height * ROWS);
+  return (c >= 0 && c < COLS && r >= 0 && r < ROWS) ? { c, r } : null;
+}
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('pointerdown', e => {
+  const cell = cellAt(e);
+  if (!cell) return;
+  canvas.setPointerCapture(e.pointerId);
+  painting = e.button === 2 ? '.' : tool;
+  strokeStart = rows();
+  if (paint(cell.c, cell.r, painting)) changed();
+});
+canvas.addEventListener('pointermove', e => {
+  hover = cellAt(e);
+  if (painting && hover && paint(hover.c, hover.r, painting)) changed();
+  else draw();
+});
+canvas.addEventListener('pointerup', () => {
+  if (strokeStart && strokeStart.join() !== rows().join()) {
+    history.push(strokeStart);
+    if (history.length > 100) history.shift();
+  }
+  painting = null; strokeStart = null;
+});
+canvas.addEventListener('pointerleave', () => { hover = null; draw(); });
+
+// ---------------------------------------------------------------------------
+// Bedienelemente
+// ---------------------------------------------------------------------------
+const templateSel = document.getElementById('template'), levelSel = document.getElementById('levelNo');
+templateSel.add(new Option('Leerer Level', 'empty'));
+LEVELS.forEach((map, i) => { if (map) templateSel.add(new Option(`Level ${i + 1}`, String(i))); });
+for (let n = 1; n <= Math.max(20, LEVELS.length + 1); n++) levelSel.add(new Option(`levels/level${n}.js`, String(n)));
+
+document.getElementById('loadBtn').addEventListener('click', () => {
+  const v = templateSel.value;
+  pushHistory();
+  setGrid(v === 'empty' ? emptyLevel() : levelMap(LEVELS[+v]));
+  setTime(v === 'empty' ? DEFAULT_TIME : levelTime(LEVELS[+v]));
+  if (v !== 'empty') levelSel.value = String(+v + 1);
+  changed();
+});
+document.getElementById('undoBtn').addEventListener('click', undo);
+levelSel.addEventListener('change', changed);
+
+const copyMsg = document.getElementById('copyMsg');
+function flashMsg(text, color) {
+  copyMsg.textContent = text; copyMsg.style.color = color || '';
+  clearTimeout(flashMsg.t); flashMsg.t = setTimeout(() => { copyMsg.textContent = ''; }, 3000);
+}
+
+document.getElementById('copyBtn').addEventListener('click', async () => {
+  const out = document.getElementById('out');
+  out.value = fileText(+levelSel.value);
+  try {
+    await navigator.clipboard.writeText(out.value);
+  } catch (e) {
+    out.select();
+    if (!document.execCommand('copy')) { flashMsg('Kopieren nicht möglich – bitte manuell kopieren.', 'var(--err)'); return; }
+  }
+  const errs = checks().filter(([cls]) => cls === 'err').length;
+  flashMsg(errs ? `Kopiert – Achtung, ${errs} Fehler!` : 'In die Zwischenablage kopiert.', errs ? 'var(--accent)' : '');
+});
+
+document.getElementById('parseBtn').addEventListener('click', () => {
+  const text = document.getElementById('out').value;
+  const found = [...text.matchAll(/'([^'\n]*)'/g)].map(m => m[1]);
+  if (found.length !== ROWS || found.some(r => r.length !== COLS || /[^#.XSabcdDmn1-9ygurYGUR]/.test(r))) {
+    flashMsg(`Text ungültig: ${ROWS} Zeilen mit je ${COLS} Zeichen (# . X S a b c d D m n 1–9 y g u r Y G U R) erwartet.`, 'var(--err)');
+    return;
+  }
+  pushHistory();
+  setGrid(found);
+  const t = text.match(/^\s*time:\s*(\d+)/m);
+  setTime(t ? +t[1] : DEFAULT_TIME);
+  changed();
+  flashMsg('Text übernommen.');
+});
+
+window.addEventListener('keydown', e => {
+  if (['TEXTAREA', 'SELECT', 'INPUT'].includes(e.target.tagName)) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+  // erst exakt (y = Schlüssel, Y = Schloss), sonst ohne Groß-/Kleinschreibung (a = Brüchig 1)
+  const t = TOOLS.find(t => t.key === e.key) || TOOLS.find(t => t.key === e.key.toUpperCase());
+  if (t) selectTool(t.ch);
+});
+
+// ---------------------------------------------------------------------------
+// Start: zuletzt bearbeiteten Entwurf wiederherstellen, sonst Level 1
+// ---------------------------------------------------------------------------
+function init() {
+  buildImages();
+  let draft = null;
+  try { draft = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) { draft = null; }
+  const map = draft && levelMap(draft);
+  const valid = Array.isArray(map) && map.length === ROWS &&
+    map.every(r => typeof r === 'string' && r.length === COLS && !/[^#.XSabcdDmn1-9ygurYGUR]/.test(r));
+  const start = valid ? draft : LEVELS[0];
+  setGrid(start ? levelMap(start) : emptyLevel());
+  setTime(start ? levelTime(start) : DEFAULT_TIME);
+  buildPalette();
+  changed();
+}
+
+Promise.race([
+  document.fonts ? document.fonts.load('14px "Press Start 2P"') : Promise.resolve(),
+  new Promise(r => setTimeout(r, 1500)),
+]).catch(() => {}).then(init);
+</script>
+</body>
+</html>
