@@ -59,6 +59,38 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="tiles.js"></script>
 <script src="words.js"></script>
+<script src="backgrounds/hund.js"></script>
+<script src="backgrounds/haus.js"></script>
+<script src="backgrounds/baum.js"></script>
+<script src="backgrounds/mond.js"></script>
+<script src="backgrounds/boot.js"></script>
+<script src="backgrounds/pilz.js"></script>
+<script src="backgrounds/katze.js"></script>
+<script src="backgrounds/sonne.js"></script>
+<script src="backgrounds/fisch.js"></script>
+<script src="backgrounds/vogel.js"></script>
+<script src="backgrounds/blume.js"></script>
+<script src="backgrounds/apfel.js"></script>
+<script src="backgrounds/schiff.js"></script>
+<script src="backgrounds/rakete.js"></script>
+<script src="backgrounds/kaktus.js"></script>
+<script src="backgrounds/spinne.js"></script>
+<script src="backgrounds/kirsche.js"></script>
+<script src="backgrounds/fahrrad.js"></script>
+<script src="backgrounds/gitarre.js"></script>
+<script src="backgrounds/elefant.js"></script>
+<script src="backgrounds/standard.js"></script>
+<script src="backgrounds/tiere.js"></script>
+<script src="backgrounds/natur.js"></script>
+<script src="backgrounds/essen.js"></script>
+<script src="backgrounds/wohnen.js"></script>
+<script src="backgrounds/kleidung.js"></script>
+<script src="backgrounds/koerper.js"></script>
+<script src="backgrounds/verkehr.js"></script>
+<script src="backgrounds/dinge.js"></script>
+<script src="backgrounds/spiel.js"></script>
+<script src="backgrounds/menschen.js"></script>
+<script src="backgrounds/orte.js"></script>
 <script src="levels/level1.js"></script>
 <script src="levels/level2.js"></script>
 <script src="levels/level3.js"></script>
@@ -256,286 +288,10 @@ function haloTexture() {
 
 // ---------------------------------------------------------------------------
 // Hintergrundbilder – selbst gemalt, passend zum Wort, monochrom (sepia).
-// Schlüssel = Bildname aus WORDS (mehrere Wörter können dasselbe Bild nutzen).
+// Malfunktionen liegen in backgrounds/*.js; Schlüssel = Bildname aus WORDS
+// (mehrere Wörter können dasselbe Bild nutzen, '_' = Standardbild).
 // ---------------------------------------------------------------------------
-const PAINTERS = {
-  HUND(D) {
-    D.sky(200, 240); D.circ(540, 90, 40, 250); D.ground(370, 150);
-    D.line([[425, 285], [470, 240], [495, 195]], 95, 16);           // Schwanz
-    D.rect(250, 300, 26, 95, 75); D.rect(395, 300, 26, 95, 75);       // hintere Beine
-    D.ell(330, 290, 115, 58, 100);                                    // Körper
-    D.rect(275, 310, 26, 88, 95); D.rect(370, 310, 26, 88, 95);       // vordere Beine
-    D.ell(288, 398, 20, 9, 70); D.ell(383, 398, 20, 9, 70);
-    D.circ(220, 225, 58, 115);                                        // Kopf
-    D.rect(235, 268, 55, 14, 45);                                     // Halsband
-    D.ell(170, 248, 40, 27, 140);                                     // Schnauze
-    D.circ(136, 240, 11, 25);                                         // Nase
-    D.ell(258, 225, 20, 48, 65, -0.35);                               // Ohr
-    D.circ(205, 205, 8, 25); D.circ(207, 203, 3, 230);                // Auge
-    D.curve(150, 262, 165, 275, 185, 262, 40, 3);                     // Maul
-  },
-  HAUS(D) {
-    D.sky(190, 240); D.circ(110, 90, 35, 250); D.ground(385, 135);
-    D.rect(390, 110, 32, 90, 80);                                     // Schornstein
-    D.circ(408, 85, 16, 215); D.circ(425, 62, 20, 225); D.circ(448, 36, 24, 235);
-    D.rect(195, 225, 250, 165, 175);                                  // Wände
-    D.poly([[170, 232], [320, 105], [470, 232]], 80);                 // Dach
-    D.line([[170, 232], [320, 105], [470, 232]], 60, 6);
-    D.rect(292, 295, 56, 95, 70); D.circ(336, 345, 4, 220);           // Tür
-    for (const wx of [225, 375]) {                                     // Fenster
-      D.rect(wx, 255, 52, 48, 235);
-      D.line([[wx + 26, 255], [wx + 26, 303]], 90, 4);
-      D.line([[wx, 279], [wx + 52, 279]], 90, 4);
-      D.line([[wx, 255], [wx + 52, 255], [wx + 52, 303], [wx, 303], [wx, 255]], 90, 4);
-    }
-    D.poly([[300, 390], [340, 390], [380, 480], [260, 480]], 185);    // Weg
-    D.rect(524, 340, 14, 50, 70); D.circ(530, 320, 45, 95);           // Busch
-  },
-  BAUM(D) {
-    D.sky(195, 240); D.ground(395, 130);
-    D.poly([[295, 400], [345, 400], [335, 250], [305, 250]], 70);     // Stamm
-    D.line([[320, 280], [260, 220]], 70, 14); D.line([[322, 270], [390, 210]], 70, 14);
-    for (const [x, y, r, n] of [[320, 170, 95, 105], [230, 215, 70, 95], [410, 215, 70, 95],
-      [270, 130, 65, 120], [375, 130, 65, 120], [320, 90, 60, 130], [320, 230, 70, 110]]) D.circ(x, y, r, n);
-    for (const [x, y] of [[260, 180], [350, 140], [390, 230], [300, 240], [230, 240], [330, 95]]) D.circ(x, y, 9, 210);
-  },
-  MOND(D, g) {
-    const sky = D.sky(15, 70); D.stars(110, 330);
-    D.circ(400, 190, 105, 235);
-    g.fillStyle = sky; g.beginPath(); g.arc(350, 160, 100, 0, Math.PI * 2); g.fill();  // Sichel
-    D.circ(480, 200, 10, 205); D.circ(455, 260, 8, 210);
-    D.ell(150, 500, 320, 140, 30); D.ell(520, 520, 300, 150, 40);
-  },
-  BOOT(D) {
-    D.sky(185, 235, 340); D.circ(500, 110, 45, 250);
-    D.rect(0, 330, 640, 150, 105);
-    for (let k = 0, y = 350; y < 480; k++, y += 22)
-      for (let x = (k % 2) * 30; x < 640; x += 60) D.curve(x, y, x + 15, y - 8, x + 30, y, 150, 3);
-    D.rect(316, 140, 8, 180, 50);                                     // Mast
-    D.poly([[328, 150], [328, 305], [450, 305]], 235);                // Segel
-    D.poly([[312, 165], [312, 300], [230, 300]], 215);
-    D.poly([[324, 140], [324, 118], [360, 129]], 60);                 // Fahne
-    D.poly([[170, 315], [470, 315], [425, 375], [215, 375]], 60);     // Rumpf
-    D.line([[175, 322], [465, 322]], 180, 4);
-    D.line([[120, 120], [135, 110], [150, 120]], 60, 3); D.line([[160, 90], [172, 82], [184, 90]], 60, 3);
-  },
-  PILZ(D, g, v) {
-    D.sky(120, 200);
-    for (const x of [40, 140, 520, 600]) D.rect(x, 0, 26, 395, 110);  // Bäume im Hintergrund
-    D.ground(390, 95);
-    D.poly([[290, 400], [350, 400], [340, 260], [300, 260]], 215);    // Stiel
-    g.fillStyle = v(65); g.beginPath(); g.ellipse(320, 268, 150, 120, 0, Math.PI, 0); g.closePath(); g.fill();
-    for (const [x, y, r] of [[260, 215, 18], [330, 190, 22], [390, 225, 16], [300, 245, 12],
-      [215, 250, 10], [420, 255, 11], [360, 240, 9], [280, 175, 9]]) D.circ(x, y, r, 230);
-    D.rect(472, 360, 16, 35, 200);                                    // kleiner Pilz
-    g.fillStyle = v(80); g.beginPath(); g.ellipse(480, 362, 34, 28, 0, Math.PI, 0); g.closePath(); g.fill();
-    D.circ(470, 348, 5, 230); D.circ(492, 352, 4, 230);
-  },
-  KATZE(D) {
-    D.sky(60, 120); D.stars(40, 250); D.circ(510, 100, 50, 230);
-    D.rect(0, 400, 640, 80, 55);                                      // Mauer
-    for (let y = 400; y < 480; y += 20) D.line([[0, y], [640, y]], 35, 2);
-    D.curve(390, 380, 500, 330, 450, 220, 150, 18);                   // Schwanz
-    D.ell(320, 320, 85, 90, 150);                                     // Körper
-    D.ell(290, 405, 25, 12, 170); D.ell(350, 405, 25, 12, 170);       // Pfoten
-    D.poly([[270, 170], [262, 105], [305, 145]], 160);                // Ohren
-    D.poly([[370, 170], [378, 105], [335, 145]], 160);
-    D.poly([[274, 160], [268, 122], [296, 147]], 120);
-    D.poly([[366, 160], [372, 122], [344, 147]], 120);
-    D.circ(320, 200, 62, 160);                                        // Kopf
-    D.ell(295, 195, 13, 9, 240); D.ell(345, 195, 13, 9, 240);
-    D.ell(295, 195, 3, 8, 20); D.ell(345, 195, 3, 8, 20);
-    D.poly([[312, 218], [328, 218], [320, 228]], 80);
-    D.line([[320, 228], [320, 236]], 80, 2);
-    D.curve(308, 240, 314, 245, 320, 236, 80, 2); D.curve(320, 236, 326, 245, 332, 240, 80, 2);
-    for (const [a, b] of [[[300, 225], [240, 215]], [[300, 230], [240, 238]], [[340, 225], [400, 215]], [[340, 230], [400, 238]]])
-      D.line([a, b], 230, 2);
-  },
-  SONNE(D) {
-    D.sky(170, 225);
-    for (let i = 0; i < 12; i++) {
-      const a = i * Math.PI / 6;
-      D.line([[320 + Math.cos(a) * 105, 190 + Math.sin(a) * 105], [320 + Math.cos(a) * 160, 190 + Math.sin(a) * 160]], 245, 12);
-    }
-    D.circ(320, 190, 85, 252);
-    D.ell(110, 110, 60, 22, 235); D.ell(150, 100, 40, 25, 238); D.ell(540, 330, 70, 22, 230);
-    D.ell(140, 480, 300, 130, 120); D.ell(520, 490, 300, 150, 95);
-    D.line([[470, 80], [485, 70], [500, 80]], 60, 3); D.line([[510, 110], [522, 102], [534, 110]], 60, 3);
-  },
-  FISCH(D, g) {
-    D.sky(160, 50);
-    g.globalAlpha = 0.12;
-    for (const x of [80, 260, 450]) D.poly([[x, 0], [x + 60, 0], [x + 160, 480], [x + 40, 480]], 255);
-    g.globalAlpha = 1;
-    D.ell(320, 530, 420, 90, 120);                                    // Sand
-    for (const x of [60, 120, 520, 590]) D.curve(x, 480, x + 40, 380, x - 10, 280, 80, 10);
-    D.poly([[430, 240], [530, 165], [510, 240], [530, 315]], 170);    // Schwanzflosse
-    D.poly([[290, 175], [360, 130], [390, 185]], 160);                // Rückenflosse
-    D.ell(320, 240, 135, 78, 205);                                    // Körper
-    for (let x = 300; x < 420; x += 26) for (let y = 205; y <= 280; y += 26) D.curve(x, y - 12, x + 12, y, x, y + 12, 160, 3);
-    D.curve(240, 190, 262, 240, 240, 290, 150, 4);                    // Kiemen
-    D.circ(225, 220, 16, 250); D.circ(222, 220, 8, 20);               // Auge
-    D.curve(188, 255, 200, 262, 214, 258, 90, 3);
-    D.ring(170, 170, 10, 220, 3); D.ring(150, 120, 14, 220, 3); D.ring(175, 70, 8, 220, 3);
-  },
-  VOGEL(D) {
-    D.sky(195, 240);
-    D.line([[0, 370], [200, 355], [640, 330]], 70, 22);               // Ast
-    D.line([[420, 340], [500, 300], [560, 290]], 70, 10);
-    D.ell(500, 280, 25, 10, 110, -0.5); D.ell(560, 300, 22, 9, 110, 0.4); D.ell(120, 350, 24, 10, 110, -0.3);
-    D.line([[305, 335], [300, 350]], 50, 4); D.line([[335, 335], [335, 348]], 50, 4);
-    D.poly([[370, 290], [450, 330], [440, 300]], 110);                // Schwanz
-    D.ell(320, 290, 75, 55, 140);                                     // Körper
-    D.ell(300, 305, 45, 30, 200);                                     // Brust
-    D.circ(260, 235, 42, 145);                                        // Kopf
-    D.poly([[222, 228], [185, 240], [222, 250]], 230);                // Schnabel
-    D.circ(250, 225, 8, 20); D.circ(252, 222, 3, 240);
-    D.ell(345, 280, 58, 28, 95, 0.35);                                // Flügel
-    D.circ(160, 140, 9, 60); D.line([[168, 140], [168, 100]], 60, 3);   // Noten
-    D.circ(190, 120, 9, 60); D.line([[198, 120], [198, 80]], 60, 3); D.line([[168, 100], [198, 80]], 60, 4);
-  },
-  BLUME(D) {
-    D.sky(195, 240); D.ground(400, 120);
-    D.curve(320, 410, 300, 320, 320, 230, 60, 12);                    // Stiel
-    D.ell(275, 330, 40, 14, 80, -0.5); D.ell(360, 300, 40, 14, 80, 0.5);
-    for (let i = 0; i < 8; i++) {
-      const a = i * Math.PI / 4;
-      D.ell(320 + Math.cos(a) * 55, 200 + Math.sin(a) * 55, 42, 22, 225, a);
-    }
-    D.circ(320, 200, 36, 90);
-    for (const [x, y] of [[310, 190], [330, 195], [318, 212], [304, 206], [332, 182]]) D.circ(x, y, 4, 50);
-    for (const [x, y] of [[80, 430], [150, 450], [500, 440], [580, 425]]) { D.circ(x, y, 9, 230); D.circ(x, y, 4, 90); }
-  },
-  APFEL(D) {
-    D.sky(180, 215, 360); D.rect(0, 360, 640, 120, 110); D.line([[0, 360], [640, 360]], 80, 4);
-    D.ell(320, 372, 160, 20, 80);                                     // Schatten
-    D.circ(280, 260, 100, 125); D.circ(360, 260, 100, 125); D.circ(320, 280, 95, 125);
-    D.ell(320, 168, 22, 8, 95);
-    D.ell(265, 215, 22, 40, 200, -0.4);                               // Glanz
-    D.curve(320, 175, 315, 140, 330, 110, 50, 9);                     // Stiel
-    D.ell(370, 125, 42, 16, 80, -0.4); D.line([[332, 140], [405, 112]], 55, 2);
-  },
-  SCHIFF(D) {
-    D.sky(190, 235, 320); D.rect(0, 320, 640, 160, 100);
-    D.circ(300, 120, 22, 215); D.circ(320, 95, 28, 225); D.circ(350, 70, 32, 232);
-    D.circ(375, 120, 22, 215); D.circ(395, 95, 28, 225); D.circ(425, 70, 32, 232);
-    D.rect(255, 140, 38, 70, 70); D.rect(330, 140, 38, 70, 70);       // Schornsteine
-    D.rect(255, 155, 38, 12, 215); D.rect(330, 155, 38, 12, 215);
-    D.rect(225, 200, 190, 45, 215); D.rect(180, 240, 290, 55, 200);   // Aufbauten
-    for (let x = 195; x < 455; x += 25) D.rect(x, 255, 14, 14, 80);
-    D.poly([[100, 290], [545, 290], [500, 370], [150, 370]], 55);     // Rumpf
-    for (let x = 170; x < 480; x += 40) D.circ(x, 325, 8, 230);
-    for (let k = 0, y = 385; y < 480; k++, y += 24)
-      for (let x = (k % 2) * 30; x < 640; x += 60) D.curve(x, y, x + 15, y - 8, x + 30, y, 145, 3);
-  },
-  RAKETE(D, g) {
-    D.sky(10, 60); D.stars(140, 480);
-    D.circ(110, 380, 70, 120);                                        // Planet
-    g.save(); g.translate(110, 380); g.rotate(-0.3);
-    g.strokeStyle = 'rgb(200,200,200)'; g.lineWidth = 6; g.beginPath(); g.ellipse(0, 0, 115, 22, 0, 0, Math.PI * 2); g.stroke();
-    g.restore();
-    g.save(); g.translate(340, 230); g.rotate(0.45);
-    D.poly([[-30, 110], [0, 220], [30, 110]], 250);                   // Flamme
-    D.poly([[-16, 110], [0, 170], [16, 110]], 200);
-    D.poly([[-35, 40], [-75, 120], [-35, 100]], 110);                 // Flossen
-    D.poly([[35, 40], [75, 120], [35, 100]], 110);
-    D.rect(-35, -80, 70, 190, 225);                                   // Rumpf
-    D.poly([[-35, -80], [0, -170], [35, -80]], 120);                  // Spitze
-    D.circ(0, -20, 24, 90); D.circ(0, -20, 16, 40); D.circ(-6, -26, 5, 200);
-    D.rect(-35, 60, 70, 10, 140);
-    g.restore();
-  },
-  KAKTUS(D) {
-    D.sky(215, 245); D.circ(510, 100, 55, 252);
-    D.rect(0, 380, 640, 100, 195); D.ell(480, 385, 260, 30, 180);
-    const k = 95;
-    D.rect(230, 250, 70, 30, k); D.rect(230, 180, 30, 100, k); D.circ(245, 180, 15, k);
-    D.rect(340, 220, 70, 30, k); D.rect(380, 150, 30, 100, k); D.circ(395, 150, 15, k);
-    D.rect(290, 140, 60, 250, k); D.circ(320, 140, 30, k);
-    D.line([[320, 120], [320, 385]], 70, 3); D.line([[304, 135], [304, 385]], 120, 2); D.line([[336, 135], [336, 385]], 70, 2);
-    D.line([[245, 175], [245, 265]], 70, 2); D.line([[395, 145], [395, 235]], 70, 2);
-    for (const [x, y] of [[290, 170], [350, 200], [290, 240], [350, 280], [290, 320], [350, 350], [230, 200], [260, 230], [380, 180], [410, 210]]) {
-      D.line([[x, y], [x - 6, y - 4]], 230, 2); D.line([[x, y], [x + 6, y - 4]], 230, 2);
-    }
-    D.circ(320, 108, 12, 230);
-    D.ell(150, 395, 30, 14, 120); D.ell(560, 400, 22, 10, 130);
-  },
-  SPINNE(D) {
-    D.sky(40, 90);
-    const cx = 320, cy = 220, N = 12, ang = [];
-    for (let i = 0; i < N; i++) {
-      const a = i * Math.PI * 2 / N + 0.1; ang.push(a);
-      D.line([[cx, cy], [cx + Math.cos(a) * 500, cy + Math.sin(a) * 500]], 190, 2);
-    }
-    for (let k = 1; k <= 10; k++) {
-      const r = k * 28;
-      for (let i = 0; i < N; i++) {
-        const a0 = ang[i], a1 = ang[(i + 1) % N], am = a0 + Math.PI / N;
-        D.curve(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r, cx + Math.cos(am) * r * 0.88, cy + Math.sin(am) * r * 0.88,
-          cx + Math.cos(a1) * r, cy + Math.sin(a1) * r, 175, 1.5);
-      }
-    }
-    D.line([[320, 0], [320, 250]], 200, 1.5);                         // Faden
-    for (const s of [-1, 1]) for (let j = 0; j < 4; j++)
-      D.line([[320, 265], [320 + s * (50 + j * 6), 215 + j * 28], [320 + s * (85 + j * 10), 250 + j * 35]], 25, 5);
-    D.circ(320, 295, 38, 25); D.circ(320, 250, 22, 30);
-    D.circ(320, 295, 10, 90);
-    D.circ(312, 245, 4, 230); D.circ(328, 245, 4, 230);
-  },
-  KIRSCHE(D) {
-    D.sky(200, 150);
-    D.ell(325, 405, 170, 18, 120);                                    // Schatten
-    D.curve(260, 300, 270, 180, 340, 110, 60, 6); D.curve(390, 280, 380, 170, 340, 110, 60, 6);
-    D.ell(385, 110, 50, 20, 90, -0.3); D.line([[340, 110], [425, 98]], 60, 2);
-    D.circ(260, 320, 62, 85); D.circ(390, 300, 62, 80);
-    D.ell(240, 295, 12, 20, 190, -0.5); D.ell(370, 275, 12, 20, 190, -0.5);
-  },
-  FAHRRAD(D) {
-    D.sky(195, 240); D.ground(395, 140); D.circ(110, 90, 35, 250);
-    const A = [190, 315], B = [315, 320], C = [285, 200], Dp = [430, 200], E = [455, 315];
-    for (const w of [A, E]) {
-      for (let i = 0; i < 12; i++) {
-        const a = i * Math.PI / 6;
-        D.line([w, [w[0] + Math.cos(a) * 78, w[1] + Math.sin(a) * 78]], 120, 2);
-      }
-      D.ring(w[0], w[1], 80, 40, 10); D.circ(w[0], w[1], 7, 60);
-    }
-    D.line([A, B, C, A], 70, 8); D.line([C, Dp, B], 70, 8); D.line([Dp, E], 70, 8);
-    D.line([C, [280, 180]], 50, 6); D.ell(272, 175, 32, 9, 40);       // Sattel
-    D.line([Dp, [425, 170], [455, 165]], 50, 6);                     // Lenker
-    D.circ(B[0], B[1], 16, 60); D.line([[300, 345], [330, 295]], 50, 6);
-  },
-  GITARRE(D, g) {
-    D.sky(175, 215); D.rect(0, 400, 640, 80, 120);
-    g.save(); g.translate(330, 250); g.rotate(-0.5); g.scale(0.8, 0.8);
-    D.rect(-14, -260, 28, 200, 70);                                   // Hals
-    D.rect(-22, -330, 44, 75, 50);                                    // Kopf
-    for (const y of [-310, -290, -270]) { D.circ(-28, y, 6, 200); D.circ(28, y, 6, 200); }
-    for (let y = -250; y < -70; y += 22) D.line([[-14, y], [14, y]], 180, 2);
-    D.circ(0, -30, 78, 140); D.circ(0, 80, 100, 140);                 // Korpus
-    D.ring(0, 10, 34, 190, 4); D.circ(0, 10, 30, 30);                 // Schallloch
-    D.rect(-35, 105, 70, 14, 60);                                     // Steg
-    for (let k = 0; k < 6; k++) D.line([[-10 + k * 4, -325], [-10 + k * 4, 110]], 230, 1);
-    g.restore();
-  },
-  ELEFANT(D) {
-    D.sky(200, 240); D.ground(395, 150); D.circ(540, 80, 40, 250);
-    D.line([[520, 260], [545, 320]], 110, 5);                         // Schwanz
-    D.rect(300, 320, 45, 85, 105); D.rect(455, 320, 45, 85, 105);     // hintere Beine
-    D.ell(390, 270, 140, 90, 135);                                    // Körper
-    D.rect(330, 330, 45, 75, 125); D.rect(410, 330, 45, 75, 125);     // vordere Beine
-    D.circ(240, 230, 72, 140);                                        // Kopf
-    D.curve(195, 260, 150, 330, 180, 400, 140, 32);                   // Rüssel
-    D.curve(180, 400, 195, 412, 205, 395, 140, 22);
-    D.poly([[205, 275], [175, 310], [195, 300], [220, 280]], 240);    // Stoßzahn
-    D.ell(285, 235, 55, 78, 120); D.ell(290, 235, 42, 62, 105);       // Ohr
-    D.circ(215, 210, 7, 25);
-  },
-  _(D) {
-    D.sky(120, 220);
-    for (let i = 0; i < 8; i++) D.ell(80 * i, 400 - (i % 3) * 30, 120, 60, 80 + i * 10);
-  },
-};
+const PAINTERS = window.SBALL_BACKGROUNDS || {};
 
 const bgCache = new Map();
 
