@@ -192,7 +192,8 @@ const LETTER_STYLES = {
   gold:  { bg: '#e0a922', light: '#ffe07a', dark: '#7a5208', fg: '#3a2400' },
   masc:  { bg: '#2a4f9a', light: '#6f93e0', dark: '#11244d', fg: '#ffffff' },  // Artikel "le"
   fem:   { bg: '#a02a5a', light: '#e06f9a', dark: '#4d1128', fg: '#ffffff' },  // Artikel "la"
-  banner: { bg: '#f1e6c8', light: '#fffaea', dark: '#a8966a', fg: '#8a1c14' },  // Kette am Flugzeug
+  banner: { bg: '#f1e6c8', light: '#fffaea', dark: '#a8966a', fg: '#8a1c14' },  // Kette an Flugzeug 1 (deutsch)
+  bannerFr: { bg: '#dfe8f6', light: '#f6f9ff', dark: '#7f93b8', fg: '#1c3a8a' }, // Kette an Flugzeug 2 (französisch)
 };
 
 const textTexCache = new Map();
@@ -513,10 +514,11 @@ const levelGroup = new THREE.Group();
 scene.add(levelGroup);
 
 // ---------------------------------------------------------------------------
-// Flugzeug: fliegt zwischen Kamera und Spielfeld seine Bahnen und zieht die deutsche
-// Übersetzung des aktuellen Worts als Buchstabenkette hinter sich her.
-// Es fliegt immer von links nach rechts, damit die Kette lesbar bleibt; am rechten Rand
-// verschwindet es und kommt auf der nächsten Bahn links wieder herein. Unterwegs fliegt es
+// Flugzeuge: fliegen zwischen Kamera und Spielfeld ihre Bahnen und ziehen eine Buchstabenkette
+// hinter sich her – Flugzeug 1 (rot) die deutsche Übersetzung, Flugzeug 2 (blau) das französische
+// Wort, jeweils mit Artikel. Die beiden sind abwechselnd sichtbar: Ist eines samt Kette aus dem Bild
+// geflogen, kommt das andere auf der nächsten Bahn herein.
+// Sie fliegen immer von links nach rechts, damit die Kette lesbar bleibt. Unterwegs fliegen sie
 // auf den Betrachter zu und wieder von ihm weg (Tiefe z zwischen PLANE_ZMIN und PLANE_ZMAX).
 // ---------------------------------------------------------------------------
 const PLANE_ZMIN = 1.5, PLANE_ZMAX = 11;    // zwischen Spielfeld (z = 0) und Kamera
@@ -525,9 +527,9 @@ const PLANE_LANES = [3.8, -3.0, 0.8];       // Höhe der Bahnen relativ zur Bild
 const CHAIN_GAP = 0.62, CHAIN_ROPE = 1.0, PLANE_TAIL = 0.55, MAX_CHAIN = 24;
 const chainGeo = new THREE.BoxGeometry(0.56, 0.56, 0.06);
 
-function buildPlane() {
+function buildPlane(color) {
   const root = new THREE.Group(), body = new THREE.Group();
-  const red = new THREE.MeshLambertMaterial({ color: 0xc8302c });
+  const paint = new THREE.MeshLambertMaterial({ color });
   const white = new THREE.MeshLambertMaterial({ color: 0xf2efe6 });
   const dark = new THREE.MeshLambertMaterial({ color: 0x302a22 });
   const box = (w, h, d, mat, x, y, z) => {
@@ -535,10 +537,10 @@ function buildPlane() {
     m.position.set(x, y, z); body.add(m);
     return m;
   };
-  box(1.1, 0.26, 0.26, red, 0, 0, 0);           // Rumpf
+  box(1.1, 0.26, 0.26, paint, 0, 0, 0);         // Rumpf
   box(0.3, 0.18, 0.2, dark, 0.12, 0.2, 0);      // Kanzel
   box(0.34, 0.05, 1.5, white, 0.1, 0.02, 0);    // Tragfläche
-  box(0.22, 0.34, 0.05, red, -0.5, 0.22, 0);    // Seitenleitwerk
+  box(0.22, 0.34, 0.05, paint, -0.5, 0.22, 0);  // Seitenleitwerk
   box(0.2, 0.04, 0.6, white, -0.5, 0.04, 0);    // Höhenleitwerk
   box(0.08, 0.12, 0.12, dark, 0.58, 0, 0);      // Nase
   const prop = box(0.03, 0.62, 0.08, dark, 0.64, 0, 0);
@@ -547,26 +549,36 @@ function buildPlane() {
   return { root, prop };
 }
 
-const plane = buildPlane();
-scene.add(plane.root);
-const ropePos = new Float32Array((MAX_CHAIN + 1) * 3);
-const ropeGeo = new THREE.BufferGeometry();
-ropeGeo.setAttribute('position', new THREE.BufferAttribute(ropePos, 3));
-const rope = new THREE.Line(ropeGeo, new THREE.LineBasicMaterial({ color: 0x3a2a10 }));
-rope.frustumCulled = false;
-scene.add(rope);
-const banner = { text: '', chain: [], head: null, lane: 0 };
+function makeFlyer(color, style) {
+  const { root, prop } = buildPlane(color);
+  scene.add(root);
+  const ropePos = new Float32Array((MAX_CHAIN + 1) * 3);
+  const ropeGeo = new THREE.BufferGeometry();
+  ropeGeo.setAttribute('position', new THREE.BufferAttribute(ropePos, 3));
+  const rope = new THREE.Line(ropeGeo, new THREE.LineBasicMaterial({ color: 0x3a2a10 }));
+  rope.frustumCulled = false;
+  scene.add(rope);
+  return { root, prop, rope, ropePos, ropeGeo, style, text: '', chain: [] };
+}
 
-function setBannerText(text) {
-  if (banner.text === text) return;
-  banner.chain.forEach(m => m && scene.remove(m));
-  banner.text = text;
-  banner.chain = [...text.slice(0, MAX_CHAIN)].map(ch => {
+const flyers = [makeFlyer(0xc8302c, 'banner'), makeFlyer(0x2f5fc8, 'bannerFr')];  // 1: deutsch, 2: französisch
+const banner = { active: 0, head: null, lane: 0 };
+
+function setBannerText(f, text) {
+  if (f.text === text) return;
+  f.chain.forEach(m => m && scene.remove(m));
+  f.text = text;
+  f.chain = [...text.slice(0, MAX_CHAIN)].map(ch => {
     if (ch === ' ') return null;   // Wortzwischenraum: nur Abstand
-    const m = new THREE.Mesh(chainGeo, new THREE.MeshLambertMaterial({ map: letterTexture(ch, 'banner') }));
+    const m = new THREE.Mesh(chainGeo, new THREE.MeshLambertMaterial({ map: letterTexture(ch, f.style) }));
     scene.add(m);
     return m;
   });
+}
+
+function setFlyerVisible(f, v) {
+  f.root.visible = v; f.rope.visible = v;
+  f.chain.forEach(m => m && (m.visible = v));
 }
 
 // Flugbahn als Funktion der x-Position s: Wellen in der Höhe und in der Tiefe. Die Höhe wird mit der
@@ -592,29 +604,33 @@ function alongPath(obj, s, yaw = 1) {
 function updatePlane(dt) {
   const halfW = (camDist - PLANE_ZMIN) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
   const left = CX - halfW - 1.5, right = CX + halfW + 1.5;
-  const n = banner.chain.length, len = PLANE_TAIL + CHAIN_ROPE + n * CHAIN_GAP;
+  let f = flyers[banner.active];
   if (banner.head === null) banner.head = left;
   banner.head += PLANE_SPEED * dt;
-  if (banner.head - len > right) {           // Kette ganz draußen -> nächste Bahn
+  if (banner.head - (PLANE_TAIL + CHAIN_ROPE + f.chain.length * CHAIN_GAP) > right) {
+    // Kette ganz draußen -> das andere Flugzeug kommt auf der nächsten Bahn herein
     banner.head = left;
     banner.lane = (banner.lane + 1) % PLANE_LANES.length;
+    banner.active = 1 - banner.active;
+    f = flyers[banner.active];
   }
-  const h = banner.head;
-  alongPath(plane.root, h);
-  plane.prop.rotation.x += dt * 40;
+  flyers.forEach((g, i) => setFlyerVisible(g, i === banner.active));
+  const n = f.chain.length, h = banner.head;
+  alongPath(f.root, h);
+  f.prop.rotation.x += dt * 40;
   // Buchstabe 0 hängt am weitesten hinten, der letzte direkt am Seil
   let k = 0;
   const tail = h - PLANE_TAIL;
-  ropePos.set(pathPoint(tail, _p).toArray(), k++ * 3);
+  f.ropePos.set(pathPoint(tail, _p).toArray(), k++ * 3);
   for (let i = n - 1; i >= 0; i--) {
-    const s = tail - CHAIN_ROPE - (n - 1 - i) * CHAIN_GAP, m = banner.chain[i];
-    ropePos.set(pathPoint(s, _p).toArray(), k++ * 3);
+    const s = tail - CHAIN_ROPE - (n - 1 - i) * CHAIN_GAP, m = f.chain[i];
+    f.ropePos.set(pathPoint(s, _p).toArray(), k++ * 3);
     if (!m) continue;
     alongPath(m, s, 0.3);
     m.rotateX(0.3 * Math.sin(time * 5 + i * 0.8));   // flattert im Wind
   }
-  ropeGeo.setDrawRange(0, k);
-  ropeGeo.attributes.position.needsUpdate = true;
+  f.ropeGeo.setDrawRange(0, k);
+  f.ropeGeo.attributes.position.needsUpdate = true;
 }
 
 function resize() {
@@ -808,7 +824,8 @@ function buildLevel() {
   ball.x = start.x; ball.y = start.y; ball.vy = VSPEED; ball.knockT = 0;
   ballMesh.visible = true; ballMesh.scale.set(1, 1, 1);
   bgMat.map = backgroundTexture(image); bgMat.needsUpdate = true;
-  setBannerText(german);
+  setBannerText(flyers[0], german);
+  setBannerText(flyers[1], `${article} ${word}`);
   updateHud();
 }
 
